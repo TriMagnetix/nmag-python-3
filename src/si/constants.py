@@ -6,8 +6,10 @@ This module provides common physical constants as pint Quantity objects
 for direct use in calculations. It replaces hard-coded values with references
 to the pint library's built-in constants, which are based on up-to-date
 CODATA values.
+https://github.com/hgrecco/pint/blob/master/pint/default_en.txt
+https://github.com/hgrecco/pint/blob/master/pint/constants_en.txt
 """
-from physical import ureg, SI
+from si.physical import ureg, SI
 
 # --- Base and Common Units ---
 kilogram = ureg.kilogram
@@ -30,16 +32,17 @@ Oersted = ureg.oersted
 Oe = Oersted
 bohr_magneton = ureg.bohr_magneton
 positron_charge = ureg.e
-electron_charge = -ureg.e
+electron_charge = -1 * ureg.e
 boltzmann_constant = ureg.k
 plank_constant = ureg.h
 reduced_plank_constant = ureg.hbar
 
 # --- Custom or Specific Values ---
 
-degrees_per_ns = SI(1 * ureg.degree / ureg.nanosecond)
+degrees_per_ns = 1 * ureg.degree / ureg.nanosecond
 
+gamma_e = (ureg.g_e * ureg.e) / (2 * ureg.m_e)
 # This constant, often used in micromagnetics, is the product of the
 # electron gyromagnetic ratio (gamma_e) and the vacuum permeability (mu_0).
 # The negative sign is a convention used in the LLG equation.
-gamma0 = -SI(ureg.electron_gyromagnetic_ratio * ureg.mu_0)
+gamma0 = -1 * gamma_e * ureg.mu_0

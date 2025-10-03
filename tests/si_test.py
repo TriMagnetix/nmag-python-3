@@ -4,7 +4,7 @@ Unit tests for the Physical (SI) class using the pint library.
 
 import unittest
 import pint
-from physical import SI
+from si.physical import SI
 
 class TestHardcodedUnits(unittest.TestCase):
   """
