@@ -91,10 +91,6 @@ class PredefinedAnisotropy:
         o = max(self.order, y.order)
         return PredefinedAnisotropy(f, o)
 
-# -----------------------------------------------------------------------------
-# Anisotropy Factory Functions
-# -----------------------------------------------------------------------------
-
 def uniaxial_anisotropy(axis, K1, K2=0):
     """
     Returns a predefined anisotropy for a uniaxial energy density term:

@@ -191,4 +191,3 @@ class TestClassFunctionality(unittest.TestCase):
 # This allows the test to be run from the command line
 if __name__ == '__main__':
   unittest.main()
-
