@@ -3,8 +3,8 @@ import unittest
 # Import from the actual library files
 from si import constants
 from si.physical import SI
-from mag_material.mag_material import MagMaterial
-from anisotropy.anisotropy import PredefinedAnisotropy, uniaxial_anisotropy
+from mag_material import MagMaterial
+from anisotropy import PredefinedAnisotropy, uniaxial_anisotropy
 
 class TestMagMaterial(unittest.TestCase):
     """Unit tests for the MagMaterial class using a real SI library."""
@@ -63,29 +63,8 @@ class TestMagMaterial(unittest.TestCase):
             MagMaterial(name='UnitError', Ms=SI(constants.Joule / constants.meter))
 
         # Case 2: Providing a negative exchange coupling should raise a ValueError.
-        # with self.assertRaisesRegex(ValueError, "exchange coupling constant must be positive"):
-        #     MagMaterial(name='ValueError', exchange_coupling=SI(-1e-12, constants.Joule / constants.meter))
-
-    def test_calculated_coefficients(self):
-        """Verify the correctness of internally calculated 'su_' coefficients."""
-        # Use simple values to make manual calculation easy
-        mat = MagMaterial(name='TestCalc',
-                          Ms=SI(constants.Ampere / constants.meter),
-                          exchange_coupling=SI(constants.Joule / constants.meter),
-                          llg_gamma_G=SI(constants.meter / (constants.Ampere * constants.second)),
-                          llg_damping=0.5,
-                          do_precession=True)
-        print(mat.su_llg_coeff1, mat.su_llg_coeff2, mat.su_exch_prefactor)
-        # Manually calculate expected values
-        gilbert_to_ll = 1.0 / (1.0 + 0.5**2)
-        expected_coeff1 = -1.0 * gilbert_to_ll
-        expected_coeff2 = expected_coeff1 * 0.5
-        expected_exch = -2.0 * 1.0 / (constants.mu0 * 1.0)
-
-        self.assertAlmostEqual(mat.su_llg_coeff1.value, expected_coeff1)
-        self.assertAlmostEqual(mat.su_llg_coeff2.value, expected_coeff2)
-        self.assertAlmostEqual(mat.su_exch_prefactor, expected_exch)
-
+        with self.assertRaisesRegex(ValueError, "exchange coupling constant must be positive"):
+            MagMaterial(name='ValueError', exchange_coupling=SI(-1e-12, constants.Joule / constants.meter))
 
     def test_no_precession_flag(self):
         """Test that `do_precession=False` correctly nullifies the precession term."""

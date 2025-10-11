@@ -89,7 +89,6 @@ class Physical:
   value = magnitude  # Alias for backward compatibility
 
   def dens_str(self):
-    print(self._quantity, type(self._quantity ))
     """
     Provide a dense string describing the object, similar to the original class.
     Example: <1e+06A/m>
@@ -99,7 +98,8 @@ class Physical:
       return "<1>"
     
     # For non-dimensionless quantities with a magnitude of 1.0, omit the number.
-    if self._quantity.magnitude and self._quantity.magnitude == 1.0:
+    # pint.Unit will not have a magnitude, even though it can be thought of as it having a magnitude of 1.0.
+    if hasattr(self._quantity, 'magnitude') and self._quantity.magnitude == 1.0:
       # Format just the units
       compact_str = f"{self._quantity.units:~}"
     else:

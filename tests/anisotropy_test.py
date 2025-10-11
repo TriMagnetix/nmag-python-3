@@ -2,13 +2,14 @@ import unittest
 import numpy as np
 
 # Import the classes and functions to be tested
-from anisotropy.anisotropy import (
+from anisotropy import (
     PredefinedAnisotropy,
     uniaxial_anisotropy,
     cubic_anisotropy,
-    _normalize,
     want_anisotropy,
 )
+# Import the hidden helper function for normalization directly since it isn't exposed in the init file
+from anisotropy.anisotropy import _normalize
 
 class TestAnisotropy(unittest.TestCase):
     """Unit tests for the anisotropy definitions and helper functions."""
@@ -16,7 +17,7 @@ class TestAnisotropy(unittest.TestCase):
     ## Test Helper Functions
     # --------------------------------------------------------------------------
     
-    def test_normalize(self):
+    def testnormalize(self):
         """Tests the vector normalization helper function."""
         v = [1, 2, 3]
         norm_v = _normalize(v)

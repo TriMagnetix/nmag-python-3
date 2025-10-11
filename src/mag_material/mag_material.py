@@ -8,7 +8,7 @@ import logging
 
 from si.physical import SI
 from si import constants
-from anisotropy.anisotropy import PredefinedAnisotropy
+from anisotropy import PredefinedAnisotropy
 
 log = logging.getLogger('nmag')
 
@@ -179,7 +179,7 @@ class MagMaterial(object):
             log.info ("Setting su_llg_coeff1 to zero; thus no precession for material '%s'" % self.name)
             self.su_llg_coeff1 = 0.0
 
-        self.su_exch_prefactor = -2.0 * self.su_exchange_coupling / (constants.mu0 * self.su_Ms)
+        self.su_exch_prefactor = 2.0 * self.su_exchange_coupling / (constants.mu0 * self.su_Ms)
 
         self.su_anisotropy = self.anisotropy
             
