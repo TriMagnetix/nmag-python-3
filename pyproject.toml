@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "nmag-python-3"
 version = "0.0.1"
 authors = [{ name = "TriMagnetix", email = "info@trimagnetix.com" }]
-description = "Nmag is a flexible finite element micromagnetic simulation package with an user interface based on the Python_ programming language. This is a rewrite to make it available for Python 3."
+description = "\"Nmag is a flexible finite element micromagnetic simulation package with an user interface based on the Python_ programming language.\" This is a rewrite to make it available for Python 3."
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
