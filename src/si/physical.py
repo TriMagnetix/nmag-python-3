@@ -8,7 +8,7 @@ replicating the interface of a legacy Physical/SI class.
 
 import pint
 
-ureg = pint.UnitRegistry()
+ureg = pint.get_application_registry()
 
 class Physical:
   """
@@ -33,8 +33,10 @@ class Physical:
                        If None and value is a string, value will be parsed
                        as the quantity.
     """
-    # Case 1: The value is already a pint Quantity object
-    if isinstance(value, ureg.Quantity):
+    # Case 1: The value is already a pint Quantity/Unit object
+    # A pint unit is a quntity with a unit like meter, second, etc. attached. 
+    # This allows us to pass a pint unit or quantity directly.
+    if isinstance(value, ureg.Quantity) or isinstance(value, ureg.Unit):
       self._quantity = value
       return
 
@@ -47,8 +49,9 @@ class Physical:
     # Ensure value is a numeric type for pint
     val = float(value)
 
-    # Case 3: Standard initialization with string dimensions, e.g., Physical(10, "m/s")
-    if dimensions is None or isinstance(dimensions, str):
+    # Case 3: Standard initialization with string dimensions or pint unit
+    # e.g., Physical(10, "m/s") or Physical(10, ureg.meter)
+    if dimensions is None or (isinstance(dimensions, str) or isinstance(dimensions, ureg.Unit)):
       unit_str = dimensions if dimensions is not None else ""
       self._quantity = ureg.Quantity(val, unit_str)
 
@@ -82,6 +85,8 @@ class Physical:
   def magnitude(self):
     """Returns the numerical magnitude of the quantity."""
     return self._quantity.magnitude
+  
+  value = magnitude  # Alias for backward compatibility
 
   def dens_str(self):
     """
@@ -93,7 +98,8 @@ class Physical:
       return "<1>"
     
     # For non-dimensionless quantities with a magnitude of 1.0, omit the number.
-    if self._quantity.magnitude == 1.0:
+    # pint.Unit will not have a magnitude, even though it can be thought of as it having a magnitude of 1.0.
+    if hasattr(self._quantity, 'magnitude') and self._quantity.magnitude == 1.0:
       # Format just the units
       compact_str = f"{self._quantity.units:~}"
     else:
@@ -178,10 +184,10 @@ class Physical:
     return Physical(abs(self._quantity))
 
   def __neg__(self):
-    return Physical(-self._quantity)
+    return Physical(-1 * self._quantity)
 
   def __pos__(self):
-    return Physical(+self._quantity)
+    return Physical(self._quantity)
 
   # --- Comparison Operators ---
 
