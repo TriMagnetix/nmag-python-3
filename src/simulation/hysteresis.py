@@ -19,7 +19,6 @@ log = logging.getLogger('nmag')
 
 _subsequent_spaces = re.compile(r'[ \t_]+')
 
-# Module-level throttler for progress reporting, as discussed.
 _progress_throttler = Throttler()
 
 def _update_progress_file(
@@ -208,7 +207,7 @@ def _next_time(
     return (next_step, next_time, next_real_time)
 
 def simulation_relax(
-    self,  # 'self' is kept as per the original file structure
+    self,
     H_applied: Any = None,
     save: List[Tuple] = [('averages', 'fields', at('stage_end'))],
         do: List[Tuple] = [],
