@@ -1,5 +1,5 @@
 import unittest
-from when.when import at, every, never, TimeDict
+from when import at, every, never, TimeDict
 from typing import Any
 
 # --- Unit Tests (unittest.TestCase format) ---
