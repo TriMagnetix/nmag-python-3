@@ -12,7 +12,7 @@ requires-python = ">=3.8"
 classifiers = [
   "Programming Language :: Python :: 3",
   "Operating System :: OS Independent" ]
-dependencies = ["pint", "numpy", "tabulate"]
+dependencies = ["pint", "numpy", "tabulate", "pandas"]
 
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov", "pytest-watch"]
