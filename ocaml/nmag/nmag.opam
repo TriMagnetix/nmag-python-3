@@ -16,6 +16,7 @@ depends: [
   "ocaml" {>= "4.14.0" & < "5.0.0"}
   "dune" {>= "3.14"}
   "ocaml-in-python"
+  "alcotest"
   "odoc" {with-doc}
 ]
 build: [

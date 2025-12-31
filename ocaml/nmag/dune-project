@@ -24,6 +24,7 @@
  (depends
   (ocaml (and (>= 4.14.0) (< 5.0.0))) ; ocaml-in-python doesn't work with OCaml 5 yet
   dune
-  ocaml-in-python)
+  ocaml-in-python
+  alcotest)
  (tags
   (micromagnetism simulation python finite-element)))
