@@ -2,25 +2,28 @@
 
 (name nmag)
 
+(version 0.0.1)
+
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github TriMagnetix/nmag-python-3))
 
-(authors "Author Name")
+(authors "TriMagnetix")
 
-(maintainers "Maintainer Name")
+(maintainers "TriMagnetix <info@trimagnetix.com>")
 
 (license LICENSE)
 
-(documentation https://url/to/documentation)
+(documentation https://github.com/nmag-project/nmag-src)
 
 (package
  (name nmag)
- (synopsis "A short synopsis")
- (description "A longer description")
- (depends ocaml dune)
+ (synopsis "Flexible finite element micromagnetic simulation package (Python 3 port)")
+ (description "Nmag is a flexible finite element micromagnetic simulation package with a user interface based on the Python programming language. This is a rewrite to make it available for Python 3.")
+ (depends
+  (ocaml (and (>= 4.14.0) (< 5.0.0))) ; ocaml-in-python doesn't work with OCaml 5 yet
+  dune
+  ocaml-in-python)
  (tags
-  (topics "to describe" your project)))
-
-; See the complete stanza docs at https://dune.readthedocs.io/en/stable/dune-files.html#dune-project
+  (micromagnetism simulation python finite-element)))
