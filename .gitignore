@@ -6,3 +6,10 @@ __pycache__
 htmlcov/
 .coverage
 .pytest_cache/
+
+# Dune/OCaml Project Ignore File
+_build/
+.dune/
+.merlin
+.ocaml-history
+.cmi
