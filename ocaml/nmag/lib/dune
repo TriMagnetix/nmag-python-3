@@ -3,4 +3,5 @@
  (public_name nmag)
  (libraries 
   ocaml-in-python.api
+  bigarray
  ))
