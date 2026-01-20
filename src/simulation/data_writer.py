@@ -5,22 +5,16 @@ from __future__ import annotations
 
 import time
 import logging
+import csv
 from pathlib import Path
 from typing import (
     List, Optional, Tuple, Dict, Any, Union, Protocol, runtime_checkable
 )
-
-import pandas as pd
-from nsim.si_units import SI
-from quantity import (Quantity, known_quantities)
+from si.physical import SI
+from simulation.quantity import (Quantity, known_quantities)
 
 log = logging.getLogger('nmag')
 
-# Since the SimulationCore class was so coupled to the data writing, 
-# we create a sort of interface for it (Protocol) so that the DataWriter
-# isn't dependent on the concrete SimulationCore class. This makes
-# testing easier and help decouple the writer from the core logic.
-# https://typing.python.org/en/latest/spec/protocol.html
 @runtime_checkable
 class SimulationSource(Protocol):
     # Metadata
@@ -50,7 +44,6 @@ class DataWriter:
         """
         :param ndt_filename: Path to the tabular output (.ndt).
         :param h5_filename: Path to the spatial output (.h5).
-        :param quantities: The schema definition.
         """
         self.ndt_filename = ndt_filename
         self.h5_filename = h5_filename
@@ -95,7 +88,6 @@ class DataWriter:
             raise ValueError(f"Invalid fields argument: {fields}")
 
         if field_names_to_save:
-            # The writer manages the filename, but delegates the writing logic to the source
             source.save_spatial_fields(
                 filename=str(self.h5_filename),
                 fieldnames=field_names_to_save
@@ -154,34 +146,48 @@ class DataWriter:
 
     def _write_ndt_row(self, source: SimulationSource):
         columns, quantities = self._gather_data(source)
+        row_data_dict = dict(columns)
 
+        # --- Header Initialization ---
         if not self._header_written:
-            # ... (Same header writing logic as before) ...
-            # Make sure to change 'sim.name' to 'source.name'
             col_names = []
             col_units = {}
-            # ... (building logic) ...
+            
+            # Reconstruct names and units from the gathered data
+            for (name, _), qty in zip(columns, quantities):
+                col_names.append(name)
+                if qty.units:
+                    col_units[name] = qty.units.dens_str()
+                else:
+                    col_units[name] = "-"
             
             self._column_names = col_names
             self._column_units = col_units
             
-            # Write Header
-            with open(self.ndt_filename, 'w') as f:
+            # Write Header (Metadata + Column Names)
+            with open(self.ndt_filename, 'w', newline='', encoding='utf-8') as f:
                  f.write(f"# Simulation: {source.name}\n")
-                 # ... rest of header logic ...
+                 
+                 # Using csv writer for tab separation
+                 writer = csv.writer(f, delimiter='\t')
+                 writer.writerow(self._column_names)
             
-            # Pandas header write
-            pd.DataFrame(columns=self._column_names).to_csv(
-                self.ndt_filename, sep='\t', index=False, mode='a'
-            )
             self._header_written = True
 
-        # Write Data Row
-        row_data_dict = dict(columns)
-        for name, value in row_data_dict.items():
+        # --- Data Row Writing ---
+        if self._column_names is None:
+            log.error("Column names not initialized.")
+            return
+
+        row_values = []
+        for name in self._column_names:
+            value = row_data_dict.get(name)
+            
             if isinstance(value, SI):
-                row_data_dict[name] = float(value)
+                value = value.magnitude
+            
+            row_values.append(value)
         
-        pd.DataFrame([row_data_dict], columns=self._column_names).to_csv(
-            self.ndt_filename, sep='\t', index=False, mode='a', header=False
-        )
+        with open(self.ndt_filename, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f, delimiter='\t')
+            writer.writerow(row_values)

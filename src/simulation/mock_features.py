@@ -5,6 +5,7 @@ class MockFeatures:
     A simple stub to replace nsim.setup.get_features().
     Currently this is used in the simulation_core class.
     Provides default configuration values for the simulation.
+    There are no tests for this class as it is only a stub and will removed in future.
     """
     def __init__(self):
         self._config = {
