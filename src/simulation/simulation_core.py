@@ -13,12 +13,10 @@ SimulationCore ---|                       |---> Simulation
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import logging
-import time
 from pathlib import Path
 from typing import (
     Any, Callable, Dict, List, Optional, Tuple, Sequence, Union
 )
-import pandas as pd
 
 from clock import SimulationClock
 from si.physical import SI
@@ -28,7 +26,7 @@ from quantity import (
     known_quantities_by_name, 
     known_field_quantities
 )
-from hysteresis import hysteresis
+import hysteresis as hysteresis_m
 from mock_features import MockFeatures
 from data_writer import DataWriter
 
@@ -81,33 +79,7 @@ class SimulationCore(ABC):
         data_filenames: List[Path] = [
             self._ndtfilename(), self._h5filename(), self._tolfilename()
         ]
-
-        if features.get('nmag', 'clean', raw=True):
-            # TODO: This should be split out into a utility if used in many places. 
-            # I don't love this approach of statically renaming files. 
-            # This might change for the future, but for now just follow the existing pattern.
-            for file_path in data_filenames:
-                if file_path.exists():
-                    # Create new path with .old appended to the name
-                    new_path = file_path.parent / (file_path.name + ".old")
-                    log.info(f"Found old file {file_path}, renaming it to {new_path}")
-                    file_path.rename(new_path)
-        elif features.get('nmag', 'restart', raw=True):
-            log.info("Starting simulation in restart mode...")
-            self._restarting = True
-        else:
-            # Check that no data files exist
-            for filename in data_filenames:
-                if filename.exists():
-                    msg = (
-                        f"Error: Found old file {filename} -- cannot proceed. "
-                        "To start a simulation script with old data "
-                        "files present you either need to use '--clean' "
-                        "(and then the old files will be deleted), "
-                        "or use '--restart' in which case the run "
-                        "will be continued."
-                    )
-                    raise FileExistsError(msg)
+        self._manage_output_files(data_filenames)
 
         self.clock: SimulationClock = SimulationClock()
 
@@ -157,6 +129,36 @@ class SimulationCore(ABC):
         # (so that we do not save empty fields). Following the previous
         # example, dm_dcurrent, current_density won't be saved.
         self._components: Optional[List[str]] = None
+
+    def _manage_output_files(self, data_filenames: List[Path]):
+        """
+        Manages existing output files based on configuration (clean/restart).
+        """
+        if features.get('nmag', 'clean', raw=True):
+            for file_path in data_filenames:
+                if file_path.exists():
+                    # Create new path with .old appended to the name
+                    new_path = file_path.parent / (file_path.name + ".old")
+                    log.info(f"Found old file {file_path}, renaming it to {new_path}")
+                    file_path.rename(new_path)
+                    
+        elif features.get('nmag', 'restart', raw=True):
+            log.info("Starting simulation in restart mode...")
+            self._restarting = True
+            
+        else:
+            # Check that no data files exist
+            for filename in data_filenames:
+                if filename.exists():
+                    msg = (
+                        f"Error: Found old file {filename} -- cannot proceed. "
+                        "To start a simulation script with old data "
+                        "files present you either need to use '--clean' "
+                        "(and then the old files will be deleted), "
+                        "or use '--restart' in which case the run "
+                        "will be continued."
+                    )
+                    raise FileExistsError(msg)
 
     # --- Clock Properties ---
     @property
@@ -233,8 +235,11 @@ class SimulationCore(ABC):
         sim.clock.stage_end = True
 
     # Assign methods from the hysteresis module
-    relax = hysteresis.simulation_relax
-    hysteresis = hysteresis.simulation_hysteresis
+    simulation_relax = hysteresis_m.simulation_relax
+    relax = simulation_relax
+    
+    simulation_hysteresis = hysteresis_m.simulation_hysteresis
+    hysteresis = simulation_hysteresis
 
     # --- Action Abbreviations ---
     def add_action_abbrev(self,
@@ -327,71 +332,6 @@ class SimulationCore(ABC):
         
         return []
 
-    def get_ndt_columns(self) -> Tuple[List[Tuple[str, Any]], List[Quantity]]:
-        """
-        Get all data (name, value) and descriptions (Quantity)
-        for the current NDT row.
-        """
-        lt = time.localtime()
-        lt_str = (f"{lt[0]:04d}/{lt[1]:02d}/{lt[2]:02d}-"
-                  f"{lt[3]:02d}:{lt[4]:02d}:{lt[5]:02d}")
-
-        # --- Scalar clock/time data ---
-        columns: List[Tuple[str, Any]] = [
-            ('id', self.id),
-            ('step', self.step),
-            ('stage_step', self.stage_step),
-            ('stage', self.stage),
-            ('time', self.time),
-            ('stage_time', self.stage_time),
-            ('real_time', self.real_time),
-            ('unixtime', SI(time.time(), 's')),
-            ('localtime', lt_str)
-        ]
-        quantities: List[Quantity] = [
-            self.known_quantities_by_name[name] for name, _ in columns
-        ]
-
-        # --- Helper to process field averages ---
-        def process_subfield(field_name: str, prefix: str,
-                             quantity: Quantity, mat_name: Optional[str] = None):
-            """
-            Gets field average and adds it (and components) to the lists.
-            """
-            try:
-                avg = self.get_subfield_average(field_name, mat_name)
-                if avg is None:
-                    return
-            except Exception:
-                # Assuming get_subfield_average may fail if field not ready
-                return
-
-            if isinstance(avg, list):
-                # Vector field
-                for i, comp_value in enumerate(avg):
-                    comp_name = f"{prefix}_{i}"
-                    columns.append((comp_name, comp_value))
-                    quantities.append(quantity.sub_quantity(comp_name))
-            else:
-                # Scalar field
-                columns.append((prefix, avg))
-                quantities.append(quantity.sub_quantity(prefix))
-
-        # --- Add averages for all known fields ---
-        for quantity in self.known_quantities:
-            field_name = quantity.name
-            if quantity.type in ['field', 'pfield']:
-                if '?' in quantity.signature:
-                    # Per-material field
-                    for material in self.get_materials_of_field(field_name):
-                        prefix = f"{field_name}_{material.name}"
-                        process_subfield(field_name, prefix, quantity,
-                                         mat_name=material.name)
-                else:
-                    # Global field
-                    process_subfield(field_name, field_name, quantity)
-
-        return columns, quantities
 
     # --- Data Saving ---
     @abstractmethod
@@ -401,99 +341,6 @@ class SimulationCore(ABC):
         """Abstract method to save spatially-resolved fields."""
         pass
 
-    def _save_averages(self,
-                       fields: Optional[Union[str, List[str]]] = None,
-                       avoid_same_step: bool = False):
-        """
-        Save the averages of all available fields into the NDT file
-        using pandas.
-        """
-        # Get the data
-        columns, quantities = self.get_ndt_columns()
-
-        # --- 1. Define columns and header (on first call only) ---
-        if not self._ndt_header_written:
-            # Check that all columns correspond to known quantities
-            for q in quantities:
-                if not (q in self.known_quantities
-                        or q.parent in self.known_quantities):
-                    raise AssertionError(
-                        f"The quantity '{q.name}' is not listed "
-                        "as a known quantity and cannot be saved!"
-                    )
-
-            # Build the column name list and units dict
-            col_names = []
-            col_units = {}
-            for kq in self.known_quantities:
-                selected_qs = [q for q in quantities
-                               if q == kq or q.parent == kq]
-                for q in selected_qs:
-                    col_names.append(q.name)
-                    units_str = "1"
-                    if q.units is not None:
-                        units_str = q.units.dens_str()
-                    col_units[q.name] = units_str
-
-            self._ndt_column_names = col_names
-            self._ndt_column_units = col_units
-
-            # --- Write header and metadata comments ---
-            try:
-                # Write metadata comments first
-                with open(self._ndtfilename(), 'w') as f:
-                    f.write("# Nmag Data Table (TSV format)\n")
-                    f.write(f"# Simulation: {self.name}\n")
-                    f.write(f"# Date: {time.asctime()}\n")
-                    f.write("# --- Units ---\n")
-                    for name in self._ndt_column_names:
-                        unit = self._ndt_column_units.get(name, 'unknown')
-                        f.write(f"# {name}: {unit}\n")
-                    f.write("# ---\n")
-
-                # Write the actual header row using pandas
-                # We create an empty dataframe with the right columns
-                df_header = pd.DataFrame(columns=self._ndt_column_names)
-                df_header.to_csv(
-                    self._ndtfilename(),
-                    sep='\t',        # Use tabs
-                    index=False,
-                    mode='a'         # Append to the metadata we just wrote
-                )
-                self._ndt_header_written = True
-
-            except IOError as e:
-                raise IOError(f"Could not write to NDT file: {e}") from e
-
-        # --- 2. Write the data row ---
-
-        # Convert list of tuples to a dictionary for this row
-        row_data_dict = dict(columns)
-
-        # Handle SI objects: convert them to simple floats for saving
-        for name, value in row_data_dict.items():
-            if isinstance(value, SI):
-                row_data_dict[name] = float(value)
-
-        # Create a single-row DataFrame
-        # Using self._ndt_column_names ensures all columns are present
-        # and in the correct order.
-        df_row = pd.DataFrame(
-            [row_data_dict],
-            columns=self._ndt_column_names
-        )
-
-        # Append the row to the CSV file *without* the header
-        try:
-            df_row.to_csv(
-                self._ndtfilename(),
-                sep='\t',
-                index=False,
-                mode='a',          # Append mode
-                header=False       # Do not write header again
-            )
-        except IOError as e:
-            raise IOError(f"Could not append to NDT file: {e}") from e
 
     def save_data(self,
                   fields: Optional[Union[str, List[str]]] = None,
@@ -514,7 +361,7 @@ class SimulationCore(ABC):
             If True, only save if clock.step has changed since last save.
             This prevents duplicate data points during hysteresis loops.
         """
-        self.writer.save_data(self, fields, avoid_same_step)
+        self.writer.save(self, fields, avoid_same_step)
     # -------------------------------------------------------------------------
     # Abstract Methods (to be implemented by FD/FE subclasses)
     # -------------------------------------------------------------------------
@@ -600,6 +447,11 @@ class SimulationCore(ABC):
                           fieldnames: List[str] = ['m'],
                           all: bool = False):
         """Save a restart file."""
+        pass
+
+    @abstractmethod
+    def load_restart_file(self, filename: Optional[str] = None):
+        """Load a restart file."""
         pass
 
     @abstractmethod
