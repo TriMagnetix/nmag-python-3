@@ -1,8 +1,4 @@
-"""
-Module defining the DataWriter class and the interface it expects from data sources.
-"""
 from __future__ import annotations
-
 import time
 import logging
 import csv
@@ -15,13 +11,13 @@ from simulation.quantity import (Quantity, known_quantities)
 
 log = logging.getLogger('nmag')
 
+# Stub the simulation class as a Protocol so we can seperate out the DataWriter from the actual simulation implementation. 
+# This allows us to keep the DataWriter focused on its core responsibilities.
 @runtime_checkable
 class SimulationSource(Protocol):
-    # Metadata
     name: str
     id: int
     
-    # Clock State
     step: int
     stage: int
     stage_step: int
@@ -29,14 +25,12 @@ class SimulationSource(Protocol):
     stage_time: float
     real_time: float
 
-    # Data Access Methods
     def get_subfield_average(self, subfieldname: str, mat_name: Optional[str] = None) -> Any: ...
     
     def get_materials_of_field(self, field_name: str) -> List[Any]: ...
     
     def get_all_field_names(self) -> List[str]: ...
 
-    # Field Saving Capability
     def save_spatial_fields(self, filename: str, fieldnames: List[str]) -> None: ...
 
 class DataWriter:
@@ -63,17 +57,14 @@ class DataWriter:
              fields: Optional[Union[str, List[str]]] = None, 
              avoid_same_step: bool = False):
         
-        # 1. Check Step Counter
         current_step = source.step
         if avoid_same_step and current_step == self._last_saved_step:
             return
         
         self._last_saved_step = current_step
 
-        # 2. Write Tabular Data
         self._write_ndt_row(source)
 
-        # 3. Trigger Spatial Field Saving
         if fields is not None:
             self._trigger_field_save(source, fields)
 
@@ -134,7 +125,7 @@ class DataWriter:
             field_name = quantity.name
             if quantity.type in ['field', 'pfield']:
                 if '?' in (quantity.signature or ""):
-                    # Note: We assume the objects returned here have a .name attribute
+                    # Assume the objects returned here have a .name attribute
                     mats = source.get_materials_of_field(field_name)
                     for material in mats:
                         prefix = f"{field_name}_{material.name}"
@@ -148,12 +139,10 @@ class DataWriter:
         columns, quantities = self._gather_data(source)
         row_data_dict = dict(columns)
 
-        # --- Header Initialization ---
         if not self._header_written:
             col_names = []
             col_units = {}
             
-            # Reconstruct names and units from the gathered data
             for (name, _), qty in zip(columns, quantities):
                 col_names.append(name)
                 if qty.units:
@@ -164,17 +153,14 @@ class DataWriter:
             self._column_names = col_names
             self._column_units = col_units
             
-            # Write Header (Metadata + Column Names)
             with open(self.ndt_filename, 'w', newline='', encoding='utf-8') as f:
                  f.write(f"# Simulation: {source.name}\n")
                  
-                 # Using csv writer for tab separation
                  writer = csv.writer(f, delimiter='\t')
                  writer.writerow(self._column_names)
             
             self._header_written = True
 
-        # --- Data Row Writing ---
         if self._column_names is None:
             log.error("Column names not initialized.")
             return

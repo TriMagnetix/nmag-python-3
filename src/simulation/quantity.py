@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 from typing import Optional, List, Dict
-
-# Assuming this is your import path based on your snippet
 from si.physical import SI 
 
 @dataclass(frozen=True)
@@ -22,7 +20,6 @@ class Quantity:
     parent: Optional['Quantity'] = None
 
     def __post_init__(self):
-        # Because frozen=True, we must use object.__setattr__ to modify self
         if self.signature is None:
             object.__setattr__(self, 'signature', self.name)
 

@@ -10,8 +10,6 @@ from si.physical import SI
 from simulation.quantity import known_quantities
 from simulation.data_writer import DataWriter
 
-# --- Mocks for the SimulationSource Protocol ---
-
 class MockMaterial:
     def __init__(self, name: str):
         self.name = name
@@ -39,7 +37,7 @@ class MockSimulation:
             # Test returning a list (vector)
             return [1.0, 0.0, 0.0]
         elif subfieldname == 'H_ext':
-             # Test returning an SI object to verify the fix
+             # Test returning an SI object
             return SI(500.0, 'A/m') 
         elif subfieldname == 'E_total':
             return 1.5e-21
@@ -89,7 +87,7 @@ class TestDataWriter(unittest.TestCase):
         header = lines[1].strip().split('\t')
         self.assertIn('step', header)
         self.assertIn('time', header)
-        self.assertIn('m_Permalloy_0', header) # From get_subfield_average returning list
+        self.assertIn('m_Permalloy_0', header)
         self.assertIn('H_ext', header)
 
     def test_si_unit_extraction_fix(self):
@@ -101,12 +99,8 @@ class TestDataWriter(unittest.TestCase):
 
         with open(self.ndt_path, 'r', newline='') as f:
             reader = csv.DictReader(f, delimiter='\t')
-            # Skip comment line if DictReader doesn't handle '#' automatically (it usually treats it as key if not careful)
-            # Standard CSV DictReader might take line 1 (# Sim...) as header. 
-            # Let's manually parse to be safe.
             pass
         
-        # Manual parsing to be precise about row indices
         with open(self.ndt_path, 'r') as f:
             lines = [l.strip() for l in f.readlines() if not l.startswith("#")]
         
@@ -117,7 +111,6 @@ class TestDataWriter(unittest.TestCase):
         h_ext_idx = header.index('H_ext')
         h_ext_val = data[h_ext_idx]
         
-        # Assertion: The value should be '500.0', NOT '500.0 ampere / meter'
         self.assertEqual(float(h_ext_val), 500.0)
 
     def test_avoid_same_step(self):
@@ -125,18 +118,14 @@ class TestDataWriter(unittest.TestCase):
         self.source.step = 10
         self.writer.save(self.source) # First save
         
-        # Save again with same step
         self.writer.save(self.source, avoid_same_step=True)
         
         with open(self.ndt_path, 'r') as f:
-            # Should have header + comment + 1 data line = 3 lines
-            # If it saved twice, it would have 4 lines
             lines = f.readlines()
             self.assertEqual(len(lines), 3)
 
     def test_spatial_save_trigger(self):
         """Test that the writer correctly delegates spatial saving to the source."""
-        # Test specific fields
         self.writer.save(self.source, fields=['m', 'H_ext'])
         
         self.assertEqual(len(self.source.save_spatial_calls), 1)

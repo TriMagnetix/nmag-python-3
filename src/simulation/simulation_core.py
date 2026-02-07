@@ -21,7 +21,6 @@ from typing import (
 from clock import SimulationClock
 from si.physical import SI
 from quantity import (
-    Quantity, 
     known_quantities, 
     known_quantities_by_name, 
     known_field_quantities
@@ -67,14 +66,12 @@ class SimulationCore(ABC):
         self.known_quantities_by_name = known_quantities_by_name
         self.known_field_quantities = known_field_quantities
 
-        # Set the simulation name
         if name is None:
             self.name: str = features.get('etc', 'runid')
         else:
             self.name: str = name
         log.info(f"Simulation(name={self.name}) object created")
 
-        # Check for existing files
         self._restarting: bool = False
         data_filenames: List[Path] = [
             self._ndtfilename(), self._h5filename(), self._tolfilename()
@@ -137,7 +134,6 @@ class SimulationCore(ABC):
         if features.get('nmag', 'clean', raw=True):
             for file_path in data_filenames:
                 if file_path.exists():
-                    # Create new path with .old appended to the name
                     new_path = file_path.parent / (file_path.name + ".old")
                     log.info(f"Found old file {file_path}, renaming it to {new_path}")
                     file_path.rename(new_path)
@@ -147,7 +143,6 @@ class SimulationCore(ABC):
             self._restarting = True
             
         else:
-            # Check that no data files exist
             for filename in data_filenames:
                 if filename.exists():
                     msg = (
@@ -160,7 +155,6 @@ class SimulationCore(ABC):
                     )
                     raise FileExistsError(msg)
 
-    # --- Clock Properties ---
     @property
     def id(self) -> int:
         """ID."""
@@ -196,7 +190,6 @@ class SimulationCore(ABC):
         """Time passed in the 'real' world."""
         return self.clock.real_time
 
-    # --- Components and Fields ---
     @property
     def components(self) -> List[str]:
         """Get the physical components included in the model."""
@@ -217,7 +210,6 @@ class SimulationCore(ABC):
             if q.context is None or q.context in self.components
         ]
 
-    # --- Hysteresis Control ---
     @staticmethod
     def hysteresis_next_stage(sim: SimulationCore):
         """
@@ -234,14 +226,12 @@ class SimulationCore(ABC):
         sim.clock.exit_hysteresis = True
         sim.clock.stage_end = True
 
-    # Assign methods from the hysteresis module
     simulation_relax = hysteresis_m.simulation_relax
     relax = simulation_relax
     
     simulation_hysteresis = hysteresis_m.simulation_hysteresis
     hysteresis = simulation_hysteresis
 
-    # --- Action Abbreviations ---
     def add_action_abbrev(self,
                           abbreviation: str,
                           function: Callable,
@@ -286,7 +276,6 @@ class SimulationCore(ABC):
         """Add an abbreviation for the 'do' argument of hysteresis."""
         self.add_action_abbrev(abbreviation, function, prefix='do')
 
-    # Simulation Flow
     def do_next_stage(self, stage: Optional[int] = None):
         """Increment the simulation stage."""
         self.clock.inc_stage(stage=stage)
@@ -295,7 +284,6 @@ class SimulationCore(ABC):
         """Returns True when convergence has been reached."""
         return self.clock.convergence
 
-    # --- File Naming ---
     def _get_filename(self, ext: str) -> Path:
         """Get the full, absolute path for an output file."""
         basename = self.name + ext
@@ -325,15 +313,12 @@ class SimulationCore(ABC):
         """
         quantity = self.known_quantities_by_name[field_name]
         
-        # Check if signature implies per-material ('?')
-        # Also ensure self.materials is not None before returning it
         if '?' in (quantity.signature or ""):
             return self.materials if self.materials is not None else []
         
         return []
 
 
-    # --- Data Saving ---
     @abstractmethod
     def save_spatial_fields(self,
                      filename: Optional[str] = None,
@@ -362,11 +347,7 @@ class SimulationCore(ABC):
             This prevents duplicate data points during hysteresis loops.
         """
         self.writer.save(self, fields, avoid_same_step)
-    # -------------------------------------------------------------------------
-    # Abstract Methods (to be implemented by FD/FE subclasses)
-    # -------------------------------------------------------------------------
 
-    # --- Mesh ---
     @abstractmethod
     def save_mesh(self, filename: str):
         """Save the mesh to a file."""
@@ -392,7 +373,6 @@ class SimulationCore(ABC):
         """Create a new mesh."""
         pass
 
-    # --- Setters ---
     @abstractmethod
     def set_params(self,
                    stopping_dm_dt: Optional[SI] = None,
@@ -431,7 +411,6 @@ class SimulationCore(ABC):
         """Set current density."""
         pass
 
-    # --- Time Stepper ---
     @abstractmethod
     def advance_time(self,
                      target_time: SI,
@@ -440,7 +419,6 @@ class SimulationCore(ABC):
         """Advance the simulation time."""
         pass
 
-    # --- IO Methods ---
     @abstractmethod
     def save_restart_file(self,
                           filename: Optional[str] = None,
@@ -468,7 +446,6 @@ class SimulationCore(ABC):
         """Load magnetization from a file."""
         pass
 
-    # --- Probing ---
     @abstractmethod
     def probe_subfield(self,
                        subfieldname: str,
