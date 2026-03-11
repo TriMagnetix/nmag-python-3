@@ -26,12 +26,12 @@ from quantity import (
     known_field_quantities
 )
 import hysteresis as hysteresis_m
-from features import Features
+from mock_features import MockFeatures
 from data_writer import DataWriter
 
 # This is a temporary stub to replace nsim.setup.get_features()
 # until the full setup module is ported.
-features = Features()
+features = MockFeatures()
 
 log = logging.getLogger('nmag')
 
