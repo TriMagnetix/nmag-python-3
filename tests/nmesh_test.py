@@ -1,7 +1,8 @@
 import unittest
-import math
-from pathlib import Path
+import os
+import numpy as np
 import nmesh
+from nmesh.backend import nmesh_backend as backend
 
 class TestNMesh(unittest.TestCase):
     def test_meshing_parameters(self):
@@ -46,18 +47,24 @@ class TestNMesh(unittest.TestCase):
         d = nmesh.difference(b1, [b2])
         self.assertEqual(d.dim, 3)
 
-    def test_mesh_generation_stub(self):
-        """Test Mesh class initialization with stubs."""
+    def test_mesh_generation(self):
+        """Test functional Mesh generation."""
         bb = [[0,0,0], [1,1,1]]
         obj = nmesh.Box([0.2,0.2,0.2], [0.8,0.8,0.8])
         
-        m = nmesh.Mesh(bounding_box=bb, objects=[obj], a0=0.1)
-        self.assertEqual(str(m), "Mesh with 0 points and 0 simplices") # From stubs
+        # We use a large a0 to keep it fast
+        m = nmesh.Mesh(bounding_box=bb, objects=[obj], a0=0.5)
         
-        # Test properties (should return empty lists from stubs)
-        self.assertEqual(m.points, [])
-        self.assertEqual(m.simplices, [])
-        self.assertEqual(m.regions, [])
+        # It should have some points and simplices now
+        self.assertGreater(len(m.points), 0)
+        self.assertGreater(len(m.simplices), 0)
+        self.assertGreater(len(m.regions), 0)
+        
+        # Check if points are within bounding box
+        for p in m.points:
+            for i in range(3):
+                self.assertGreaterEqual(p[i], 0.0 - 1e-9)
+                self.assertLessEqual(p[i], 1.0 + 1e-9)
 
     def test_1d_mesh_generation(self):
         """Test 1D mesh generation logic."""
@@ -74,29 +81,56 @@ class TestNMesh(unittest.TestCase):
 
     def test_outer_corners(self):
         """Test outer_corners utility."""
-        class MockMesh(nmesh.MeshBase):
+        from nmesh.base import MeshBase
+        class MockMesh(MeshBase):
             @property
             def points(self):
                 return [[0,0], [1,2], [-1,1]]
         
-        m = MockMesh("raw")
+        m = MockMesh(None)
         min_c, max_corner = nmesh.outer_corners(m)
         self.assertEqual(min_c, [-1, 0])
         self.assertEqual(max_corner, [1, 2])
 
-    def test_write_mesh(self):
-        """Test write_mesh utility."""
-        points = [[0.0, 0.0], [1.0, 1.0]]
-        simplices = [(1, [0, 1])]
-        surfaces = [(1, [0])]
+    def test_write_read_mesh(self):
+        """Test writing and reading mesh back."""
+        points = [[0.0, 0.0], [1.0, 1.0], [0.0, 1.0], [1.0, 0.0]]
+        simplices = [(1, [0, 1, 2]), (1, [1, 2, 3])]
+        surfaces = []
         data = (points, simplices, surfaces)
         
-        import io
-        out = io.StringIO()
-        nmesh.write_mesh(data, out=out)
-        content = out.getvalue()
-        self.assertIn("# PYFEM mesh file version 1.0", content)
-        self.assertIn("nodes = 2", content)
+        test_file = "test_temp.nmesh"
+        nmesh.write_mesh(data, out=test_file)
+        
+        try:
+            m = nmesh.load(test_file)
+            self.assertEqual(len(m.points), 4)
+            self.assertEqual(len(m.simplices), 2)
+            self.assertEqual(m.dim, 2)
+        finally:
+            if os.path.exists(test_file):
+                os.remove(test_file)
+
+    def test_periodicity_helpers(self):
+        """Test internal periodicity helpers."""
+        
+        # Test _all_combinations
+        combs = backend._all_combinations(2)
+        self.assertEqual(len(combs), 4)
+        
+        # Test _periodic_directions
+        masks = backend._periodic_directions([True, False, True])
+        # Should return masks for all sub-entities (edges, faces)
+        self.assertGreater(len(masks), 0)
+
+    def test_gradient(self):
+        """Test numeric gradient calculation."""
+        def f(x): return x[0]**2 + x[1]**2
+        
+        grad = backend.symm_grad(f, [1.0, 2.0])
+        # Gradient of x^2 + y^2 is [2x, 2y] -> [2, 4]
+        self.assertAlmostEqual(grad[0], 2.0, places=5)
+        self.assertAlmostEqual(grad[1], 4.0, places=5)
 
 if __name__ == '__main__':
     unittest.main()
