@@ -3,6 +3,7 @@ import logging
 from typing import List, Tuple, Optional, Any, Union
 from pathlib import Path
 import itertools
+from mock_features import MockFeatures
 
 # Setup logging
 log = logging.getLogger(__name__)
@@ -85,35 +86,10 @@ def memory_report(tag: str):
 
 # --- Configuration ---
 
-class FeaturesStub:
-    """Stub for nsim.features.Features."""
-    def __init__(self, local=True):
-        self._data = {}
-
-    def from_file(self, file_path): pass
-    def from_string(self, string): pass
-    def add_section(self, section):
-        if section not in self._data:
-            self._data[section] = {}
-
-    def get(self, section, name, raw=False):
-        return self._data.get(section, {}).get(name)
-
-    def set(self, section, name, value):
-        if section not in self._data:
-            self._data[section] = {}
-        self._data[section][name] = value
-
-    def items(self, section):
-        return self._data.get(section, {}).items()
-
-    def to_string(self):
-        return str(self._data)
-
-class MeshingParameters(FeaturesStub):
+class MeshingParameters(MockFeatures):
     """Parameters for the meshing algorithm, supporting multiple dimensions."""
     def __init__(self, string=None, file=None):
-        super().__init__(local=True)
+        super().__init__()
         self.dim = None
         if file: self.from_file(file)
         if string: self.from_string(string)
