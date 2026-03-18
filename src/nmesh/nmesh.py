@@ -4,6 +4,7 @@ from typing import List, Tuple, Optional, Any, Union
 from pathlib import Path
 import itertools
 from mock_features import MockFeatures
+from . import utils
 
 # Setup logging
 log = logging.getLogger(__name__)
@@ -12,8 +13,6 @@ log = logging.getLogger(__name__)
 
 class OCamlStub:
     """Stub for the OCaml backend interface."""
-    def time_vmem_rss(self):
-        return 0.0, 0, 0
 
     # Mesher defaults setters
     def mesher_defaults_set_shape_force_scale(self, mesher, scale): pass
@@ -80,8 +79,8 @@ class OCamlStub:
 ocaml = OCamlStub()
 
 def memory_report(tag: str):
-    """Reports memory usage via OCaml backend."""
-    t, vmem, rss = ocaml.time_vmem_rss()
+    """Reports memory usage."""
+    t, vmem, rss = utils.time_vmem_rss()
     log.log(15, f"Memory report: T= {t:f} VMEM= {int(vmem)} KB RSS= {int(rss)} KB {tag}")
 
 # --- Configuration ---
