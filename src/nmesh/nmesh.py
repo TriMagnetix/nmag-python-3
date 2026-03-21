@@ -6,13 +6,10 @@ import itertools
 from mock_features import MockFeatures
 from . import utils
 
-# Setup logging
 log = logging.getLogger(__name__)
 
-# --- Stubs for External Dependencies ---
-
 class OCamlStub:
-    """Stub for the OCaml backend interface."""
+    """Stub for the OCaml backend interface, these will be removed soon once we have python equivalents."""
 
     # Mesher defaults setters
     def mesher_defaults_set_shape_force_scale(self, mesher, scale): pass
@@ -153,7 +150,6 @@ class MeshingParameters(MockFeatures):
                 setter(mesher, float(val) if "steps" not in key else int(val))
 
 def get_default_meshing_parameters():
-    """Returns default meshing parameters."""
     return MeshingParameters()
 
 # --- Loading Utilities ---
@@ -165,11 +161,9 @@ def _is_nmesh_ascii_file(filename):
     except: return False
 
 def _is_nmesh_hdf5_file(filename):
-    # This would normally use tables.isPyTablesFile
     return str(filename).lower().endswith('.h5')
 
 def hdf5_mesh_get_permutation(filename):
-    """Stub for retrieving permutation from HDF5."""
     log.warning("hdf5_mesh_get_permutation: HDF5 support is stubbed.")
     return None
 
@@ -363,7 +357,6 @@ class MeshFromFile(MeshBase):
         if _is_nmesh_ascii_file(filename):
             raw = ocaml.mesh_readfile(str(path), reorder, distribute)
         elif _is_nmesh_hdf5_file(filename):
-            # load_hdf5 logic would go here
             raw = ocaml.mesh_readfile(str(path), reorder, distribute) 
         else:
             raise ValueError(f"Unknown mesh file format: {filename}")
@@ -396,11 +389,6 @@ def load(filename, reorder=False, distribute=True):
 def save(mesh: MeshBase, filename: Union[str, Path]):
     """Alias for mesh.save for backward compatibility."""
     mesh.save(filename)
-
-# --- Exception Aliases ---
-NmeshUserError = ValueError
-NmeshIOError = IOError
-NmeshStandardError = RuntimeError
 
 # --- Geometry ---
 
@@ -523,9 +511,6 @@ def generate_1d_mesh_components(regions: List[Tuple[float, float]], discretizati
             regions_ids.append(rid)
             last = curr
             
-    # Note: original unidmesher also returned surfaces, but simplified here
-    # Standard format for mesh_from_points_and_simplices: 
-    # simplices are list of point indices, regions are separate list
     return points, simplices, regions_ids
 
 def generate_1d_mesh(regions: List[Tuple[float, float]], discretization: float) -> MeshBase:
