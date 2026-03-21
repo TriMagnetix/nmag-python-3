@@ -1,5 +1,3 @@
-import configparser
-from io import StringIO
 from typing import Any, Dict
 
 class MockFeatures:
@@ -20,52 +18,13 @@ class MockFeatures:
             }
         }
 
-    @staticmethod
-    def _coerce_value(value: str) -> Any:
-        text = value.strip()
-        if text == "":
-            return text
-
-        lowered = text.lower()
-        if lowered in {"true", "false"}:
-            return lowered == "true"
-
-        try:
-            return int(text)
-        except ValueError:
-            pass
-
-        try:
-            return float(text)
-        except ValueError:
-            return text
-
-    def _load_from_parser(self, parser: configparser.ConfigParser):
-        for section in parser.sections():
-            self.add_section(section)
-            for name, value in parser.items(section):
-                self.set(section, name, self._coerce_value(value))
-
     def from_file(self, file_path):
-        """Loads INI-style features from a file."""
-        parser = configparser.ConfigParser(
-            delimiters=("=", ":"),
-            interpolation=None,
-        )
-        parser.optionxform = str
-        with open(file_path, encoding="utf-8") as stream:
-            parser.read_file(stream)
-        self._load_from_parser(parser)
+        """Stub for loading features from a file."""
+        pass
 
     def from_string(self, string):
-        """Loads INI-style features from a string."""
-        parser = configparser.ConfigParser(
-            delimiters=("=", ":"),
-            interpolation=None,
-        )
-        parser.optionxform = str
-        parser.read_file(StringIO(string))
-        self._load_from_parser(parser)
+        """Stub for loading features from a string."""
+        pass
 
     def add_section(self, section: str):
         """Adds a section to the features if it doesn't exist."""
