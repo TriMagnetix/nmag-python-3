@@ -9,6 +9,21 @@ from mock_features import MockFeatures
 
 log = logging.getLogger(__name__)
 
+# Point density constants from original nmag code
+# These control probabilistic insertion/deletion of mesh points during relaxation
+DENSITY_ADD_PROBABILITY = 0.1  # 10% chance to add point when density too low
+FORCE_LOW_ADD_PROBABILITY = 0.2  # 20% chance to add when force < threshold
+FORCE_LOW_THRESHOLD = 0.07  # Force threshold below which points may be added
+
+DENSITY_DELETE_BASE_PROBABILITY = 0.3  # Base 30% chance to delete when density too high
+DENSITY_DELETE_SLOPE = 0.1  # Additional 10% per unit above threshold
+FORCE_HIGH_DELETE_BASE_PROBABILITY = 0.4  # Base 40% chance to delete when force too high
+FORCE_HIGH_DELETE_SLOPE = 0.1  # Additional 10% per unit above 0.5
+FORCE_HIGH_THRESHOLD = 0.5  # Force threshold above which points may be deleted
+
+# Safety epsilon for division operations
+EPSILON_DIVISION_SAFETY = 1e-15
+
 
 @dataclass(frozen=True, slots=True)
 class ParameterSpec:
@@ -132,36 +147,38 @@ def default_boundary_node_force_fun(reduced_distance):
     """Strongly repelling potential for boundary points."""
     if reduced_distance > 1.0:
         return 0.0
-    try:
-        return 1.0 / reduced_distance - 1.0
-    except ZeroDivisionError:
+    if reduced_distance < EPSILON_DIVISION_SAFETY:
         return 1e12
+    return 1.0 / reduced_distance - 1.0
 
 
 def default_handle_point_density_fun(rng, avg_stats, thresh_add, thresh_del):
-    """Default function to insert or delete points based on density and force."""
+    """Default function to insert or delete points based on density and force.
+
+    Based on OCaml implementation (mesh.ml:2151-2189).
+    """
     avg_density, avg_force = avg_stats
     if avg_density < thresh_add:
-        if rng.random() < 0.1:
+        if rng.random() < DENSITY_ADD_PROBABILITY:
             log.debug("Dtl (dens_avg=%s) - adding point.", avg_density)
             return PointFate.ADD_ANOTHER
         return PointFate.DO_NOTHING
 
-    if avg_force < 0.07:
-        if rng.random() < 0.2:
+    if avg_force < FORCE_LOW_THRESHOLD:
+        if rng.random() < FORCE_LOW_ADD_PROBABILITY:
             log.debug("Ftl (avg_force=%s) - adding point.", avg_force)
             return PointFate.ADD_ANOTHER
         return PointFate.DO_NOTHING
 
     if avg_density > thresh_del:
-        prob = 0.3 + (avg_density - thresh_del) * 0.1
+        prob = DENSITY_DELETE_BASE_PROBABILITY + (avg_density - thresh_del) * DENSITY_DELETE_SLOPE
         if rng.random() < prob:
             log.debug("Dth (dens_avg=%s) - axing point.", avg_density)
             return PointFate.DELETE
         return PointFate.DO_NOTHING
 
-    if avg_force > 0.5:
-        prob = 0.4 + (avg_force - 0.5) * 0.1
+    if avg_force > FORCE_HIGH_THRESHOLD:
+        prob = FORCE_HIGH_DELETE_BASE_PROBABILITY + (avg_force - FORCE_HIGH_THRESHOLD) * FORCE_HIGH_DELETE_SLOPE
         if rng.random() < prob:
             log.debug("Fth (avg_force=%s) - axing point.", avg_force)
             return PointFate.DELETE
