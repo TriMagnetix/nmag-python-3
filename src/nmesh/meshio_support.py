@@ -2,14 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import meshio
 import numpy as np
 
 from .backend import RawMesh
-
-try:
-    import meshio as _meshio
-except ImportError:
-    _meshio = None
 
 
 _CELL_TYPE_BY_DIM = {
@@ -22,7 +18,7 @@ _DIM_BY_CELL_TYPE = {value: key for key, value in _CELL_TYPE_BY_DIM.items()}
 
 
 def meshio_available() -> bool:
-    return _meshio is not None
+    return True
 
 
 def _cell_type_for(raw_mesh: RawMesh) -> str:
@@ -48,28 +44,22 @@ def _regions_from_meshio(mesh, cell_type: str, count: int) -> list[int]:
 
 
 def save_raw_mesh_with_meshio(path: str | Path, raw_mesh: RawMesh) -> None:
-    if _meshio is None:
-        raise RuntimeError("meshio is not installed")
-
     cell_type = _cell_type_for(raw_mesh)
     cells = [(cell_type, np.asarray(raw_mesh.simplices, dtype=int))]
     cell_data = None
     if raw_mesh.regions:
         cell_data = {"region": [np.asarray(raw_mesh.regions, dtype=int)]}
 
-    mesh = _meshio.Mesh(
+    mesh = meshio.Mesh(
         points=np.asarray(raw_mesh.points, dtype=float),
         cells=cells,
         cell_data=cell_data,
     )
-    _meshio.write(Path(path), mesh)
+    meshio.write(Path(path), mesh)
 
 
 def load_raw_mesh_with_meshio(path: str | Path) -> RawMesh:
-    if _meshio is None:
-        raise RuntimeError("meshio is not installed")
-
-    mesh = _meshio.read(Path(path))
+    mesh = meshio.read(Path(path))
     supported = next(
         ((cell_block.type, cell_block.data) for cell_block in mesh.cells if cell_block.type in _DIM_BY_CELL_TYPE),
         None,

@@ -2,6 +2,12 @@ import configparser
 from io import StringIO
 from typing import Any, Dict
 
+
+class _CasePreservingConfigParser(configparser.ConfigParser):
+    def optionxform(self, optionstr: str) -> str:
+        return optionstr
+
+
 class MockFeatures:
     """
     A unified stub to replace nsim.features.Features and provide
@@ -48,22 +54,20 @@ class MockFeatures:
 
     def from_file(self, file_path):
         """Loads INI-style features from a file."""
-        parser = configparser.ConfigParser(
+        parser = _CasePreservingConfigParser(
             delimiters=("=", ":"),
             interpolation=None,
         )
-        parser.optionxform = str
         with open(file_path, encoding="utf-8") as stream:
             parser.read_file(stream)
         self._load_from_parser(parser)
 
     def from_string(self, string):
         """Loads INI-style features from a string."""
-        parser = configparser.ConfigParser(
+        parser = _CasePreservingConfigParser(
             delimiters=("=", ":"),
             interpolation=None,
         )
-        parser.optionxform = str
         parser.read_file(StringIO(string))
         self._load_from_parser(parser)
 

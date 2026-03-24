@@ -3,6 +3,7 @@ import logging
 from dataclasses import dataclass
 from enum import IntEnum
 from functools import partialmethod
+from typing import Any
 
 from mock_features import MockFeatures
 
@@ -169,7 +170,7 @@ def default_handle_point_density_fun(rng, avg_stats, thresh_add, thresh_del):
     return PointFate.DO_NOTHING
 
 
-def _candidate_keys(name):
+def _candidate_keys(name: str) -> list[str]:
     keys = [name]
     internal = LEGACY_TO_INTERNAL.get(name)
     legacy = INTERNAL_TO_LEGACY.get(name)
@@ -219,20 +220,20 @@ class MeshingParameters(MockFeatures):
             raise RuntimeError("Dimension not set in MeshingParameters")
         return f"nmesh-{self.dim}D" if self.dim in [2, 3] else "nmesh-ND"
 
-    def _lookup(self, section, name):
+    def _lookup(self, section: str, name: str) -> Any | None:
         for key in _candidate_keys(name):
             value = self.get(section, key)
             if value is not None:
                 return value
         return None
 
-    def _canonical_key(self, name):
+    def _canonical_key(self, name: str) -> str:
         internal = LEGACY_TO_INTERNAL.get(name, name)
         if internal in self._params or name in LEGACY_TO_INTERNAL:
             return internal
         return name
 
-    def __getitem__(self, name):
+    def __getitem__(self, name: str) -> Any | None:
         user_value = self._lookup("user-modifications", name)
         if user_value is not None:
             return user_value
@@ -248,16 +249,18 @@ class MeshingParameters(MockFeatures):
 
         return None
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: str, value: Any) -> None:
         canonical = self._canonical_key(key)
         self._params[canonical] = value
         self.set("user-modifications", canonical, value)
 
-    def _sync_dimension_section(self, dim):
+    def _sync_dimension_section(self, dim: int) -> str:
         self.dim = dim
         section = self._get_section_name()
 
         for key, value in self.items("user-modifications"):
+            if not isinstance(key, str):
+                continue
             section_key = INTERNAL_TO_LEGACY.get(key, key)
             self.set(section, section_key, value)
 
