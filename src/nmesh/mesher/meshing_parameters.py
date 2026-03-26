@@ -9,8 +9,7 @@ from mock_features import MockFeatures
 
 log = logging.getLogger(__name__)
 
-# Point density constants from original nmag code
-# These control probabilistic insertion/deletion of mesh points during relaxation
+# Point density constants, these control probabilistic insertion/deletion of mesh points during relaxation
 DENSITY_ADD_PROBABILITY = 0.1  # 10% chance to add point when density too low
 FORCE_LOW_ADD_PROBABILITY = 0.2  # 20% chance to add when force < threshold
 FORCE_LOW_THRESHOLD = 0.07  # Force threshold below which points may be added
@@ -153,10 +152,7 @@ def default_boundary_node_force_fun(reduced_distance):
 
 
 def default_handle_point_density_fun(rng, avg_stats, thresh_add, thresh_del):
-    """Default function to insert or delete points based on density and force.
-
-    Based on OCaml implementation (mesh.ml:2151-2189).
-    """
+    """Default function to insert or delete points based on density and force. 0"""
     avg_density, avg_force = avg_stats
     if avg_density < thresh_add:
         if rng.random() < DENSITY_ADD_PROBABILITY:
@@ -201,8 +197,6 @@ def _candidate_keys(name: str) -> list[str]:
 
 
 class MeshingParameters(MockFeatures):
-    """Pure-Python mesher parameter container."""
-
     def __init__(self, string=None, file=None):
         super().__init__()
         self.dim = None
@@ -214,7 +208,6 @@ class MeshingParameters(MockFeatures):
         self.add_section("user-modifications")
 
     def _setup_defaults(self):
-        # Internal mesher field names and defaults used by the Python port.
         self._params = {
             "nr_probes_for_determining_volume": 100000,
             "boundary_condition_acceptable_fuzz": 1e-6,
