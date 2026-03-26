@@ -2,6 +2,7 @@ import unittest
 import math
 from pathlib import Path
 import nmesh
+from nmesh.backend import RawMesh
 
 class TestNMesh(unittest.TestCase):
     def test_meshing_parameters(self):
@@ -97,6 +98,23 @@ class TestNMesh(unittest.TestCase):
         content = out.getvalue()
         self.assertIn("# PYFEM mesh file version 1.0", content)
         self.assertIn("nodes = 2", content)
+
+    def test_write_mesh_from_raw_mesh(self):
+        """Test direct RawMesh serialization for ASCII output."""
+        raw_mesh = RawMesh(
+            points=[[0.0, 0.0], [1.0, 1.0]],
+            simplices=[[0, 1]],
+            regions=[7],
+            surfaces=[[0]],
+            dim=2,
+        )
+
+        import io
+        out = io.StringIO()
+        nmesh.write_mesh(raw_mesh, out=out)
+        content = out.getvalue()
+        self.assertIn("# PYFEM mesh file version 1.0", content)
+        self.assertIn(" 7 0 1", content)
 
 if __name__ == '__main__':
     unittest.main()

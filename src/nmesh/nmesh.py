@@ -37,22 +37,6 @@ def _normalise_periodic(periodic: Sequence[bool] | Sequence[float] | None, dim: 
         return [0.0] * dim
     return [1.0 if bool(value) else 0.0 for value in periodic]
 
-
-def _raw_mesh_as_legacy_write_data(raw_mesh: RawMesh):
-    simplices = list(
-        zip(
-            raw_mesh.regions or [1] * len(raw_mesh.simplices),
-            raw_mesh.simplices,
-        )
-    )
-    surfaces = list(
-        zip(
-            [1] * len(raw_mesh.surfaces),
-            raw_mesh.surfaces,
-        )
-    )
-    return raw_mesh.points, simplices, surfaces
-
 def memory_report(tag: str):
     """Reports memory usage."""
     t, vmem, rss = utils.time_vmem_rss()
@@ -122,7 +106,7 @@ class MeshBase:
             return
 
         if isinstance(self.raw_mesh, RawMesh):
-            write_mesh(_raw_mesh_as_legacy_write_data(self.raw_mesh), out=path)
+            write_mesh(self.raw_mesh, out=path)
             return
 
         backend.mesh_writefile(str(path), self.raw_mesh)
@@ -367,11 +351,6 @@ def save(mesh: MeshBase, filename: str | Path):
     """Alias for mesh.save for backward compatibility."""
     mesh.save(filename)
 
-# --- Exception Aliases ---
-NmeshUserError = ValueError
-NmeshIOError = IOError
-NmeshStandardError = RuntimeError
-
 # --- Geometry ---
 
 class MeshObject:
@@ -569,16 +548,36 @@ def to_lists(mesh: MeshBase):
 tolists = to_lists
 
 def write_mesh(
-    mesh_data,
+    mesh_data: RawMesh | tuple[
+        Sequence[Sequence[float]],
+        Sequence[tuple[int, Sequence[int]]],
+        Sequence[tuple[int, Sequence[int]]],
+    ],
     out: str | Path | TextIO | None = None,
     check=True,
     float_fmt=" %f",
 ):
     """
-    Writes mesh data (points, simplices, surfaces) to a file in nmesh format.
-    mesh_data: (points, simplices, surfaces)
+    Writes mesh data to a file in nmesh format.
+
+    `mesh_data` may be a `RawMesh` or a legacy `(points, simplices, surfaces)` tuple.
     """
-    points, simplices, surfaces = mesh_data
+    if isinstance(mesh_data, RawMesh):
+        points = mesh_data.points
+        simplices = list(
+            zip(
+                mesh_data.regions or [1] * len(mesh_data.simplices),
+                mesh_data.simplices,
+            )
+        )
+        surfaces = list(
+            zip(
+                [1] * len(mesh_data.surfaces),
+                mesh_data.surfaces,
+            )
+        )
+    else:
+        points, simplices, surfaces = mesh_data
 
     lines = ["# PYFEM mesh file version 1.0"]
     dim = len(points[0]) if points else 0
