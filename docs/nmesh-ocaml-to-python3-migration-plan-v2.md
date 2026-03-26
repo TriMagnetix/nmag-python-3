@@ -6,9 +6,15 @@ This plan details the migration of the `nmesh` library from a hybrid Python 2 / 
 - **Pure Python 3:** Eliminate the OCaml dependency and the `ocaml` Python module.
 - **NumPy-First Architecture:** Mandate NumPy as the foundation for all internal data storage and linear algebra.
 - **Performance Parity:** Use vectorization and optimized libraries (`scipy`, `numba`) to ensure performance parity with OCaml.
-- **API Parity:** Maintain backward compatibility with the existing `nmesh` Python API.
+- **Public API Stability:** Keep the user-facing `nmesh` API stable unless an intentional public API break is explicitly approved.
 - **Modular Design:** Split the monolithic `nmesh.py` into maintainable sub-modules.
 - **Incremental Verification:** Mandate unit tests for every module to ensure parity with the legacy implementation.
+
+### Modernization Rule
+- Internal contracts are allowed to change when it improves clarity, maintainability, or performance.
+- This includes file/module boundaries, private helper functions, internal callback payloads/signatures, and internal data flow.
+- Public API behavior is the compatibility boundary; internal compatibility is not required.
+- Any intentional public API break must be documented and covered by updated tests.
 
 ## 2. Proposed Module Structure (`nmesh/` directory)
 The `nmesh` package will be reorganized as follows:
@@ -23,7 +29,7 @@ nmesh/
 │   └── transform.py     # Affine transformations and matrix logic
 ├── mesher/
 │   ├── __init__.py      # High-level mesh_it_work coordination
-│   ├── defaults.py      # Mesher parameter management (MeshingParameters)
+│   ├── meshing_parameters.py  # Mesher parameter management (MeshingParameters)
 │   ├── driver.py        # Callback driver semantics (make_mg_gendriver)
 │   ├── forces.py        # Physics/Force calculations (Shape, Volume, etc.)
 │   ├── relaxation.py    # Iterative relaxation loop and JIT-optimized logic
@@ -62,12 +68,12 @@ nmesh/
 ### Section 2: Mesher Defaults & Driver (Porting `mesh.ml` / `lib1.py`)
 **Goal:** Move mesher parameter behavior and callback driver semantics fully to Python.
 - **Work Packages:**
-    1. Mirror `opt_mesher_defaults` values and field structure in `nmesh.mesher.defaults`.
+    1. Mirror `opt_mesher_defaults` values and field structure in `nmesh.mesher.meshing_parameters`.
     2. Implement full `MeshingParameters` setter mapping in pure Python.
-    3. Port callback cadence and payload flow used by `make_mg_gendriver`.
+    3. Port callback cadence and callback flow used by `make_mg_gendriver`.
 - **Acceptance:**
     1. Setter-based tests reproduce expected overrides in `tests/nmesh/test_defaults.py`.
-    2. Callback interval tests verify invocation cadence and payload shape.
+    2. Callback interval tests verify invocation cadence and the current callback contract.
 
 ### Section 3: Geometry & CSG (Porting `mesh.ml` / `lib1.py`)
 **Goal:** Replace OCaml body primitive and transformation logic with Python equivalents.
