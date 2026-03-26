@@ -1,25 +1,7 @@
-import inspect
 import logging
 from enum import Enum
 
 log = logging.getLogger(__name__)
-
-LEGACY_CALLBACK_DOCS = {
-    "COORDS": "Coordinates of points",
-    "LINKS": "Links in the mesh (pairs of point indices)",
-    "SIMPLICES": (
-        "Simplex info (points-indices,((circumcirc center,cc radius),"
-        "(ic center,ic radius),region))"
-    ),
-    "POINT-BODIES": (
-        "Which bodies does the corresponding point belong to (body index list)"
-    ),
-    "SURFACES": (
-        "Surface elements info (points-indices,((circumcirc center,cc radius),"
-        "(ic center,ic radius),region))"
-    ),
-    "REGION-VOLUMES": "Volume for every region",
-}
 
 
 class MeshEngineCommand(Enum):
@@ -32,69 +14,6 @@ class MeshEngineStatus(Enum):
     FINISHED_FORCE_EQUILIBRIUM_REACHED = 2
     CAN_CONTINUE = 3
     PRODUCED_INTERMEDIATE_MESH = 4
-
-
-def _looks_like_legacy_payload(mesh):
-    return (
-        isinstance(mesh, list)
-        and all(
-            isinstance(entry, tuple)
-            and len(entry) == 3
-            and isinstance(entry[0], str)
-            for entry in mesh
-        )
-    )
-
-
-def _mesh_payload(mesh):
-    if _looks_like_legacy_payload(mesh):
-        return mesh
-
-    return [
-        ("COORDS", LEGACY_CALLBACK_DOCS["COORDS"], getattr(mesh, "points", [])),
-        ("LINKS", LEGACY_CALLBACK_DOCS["LINKS"], getattr(mesh, "links", [])),
-        (
-            "SIMPLICES",
-            LEGACY_CALLBACK_DOCS["SIMPLICES"],
-            getattr(mesh, "simplices", []),
-        ),
-        (
-            "POINT-BODIES",
-            LEGACY_CALLBACK_DOCS["POINT-BODIES"],
-            getattr(mesh, "point_regions", []),
-        ),
-        (
-            "SURFACES",
-            LEGACY_CALLBACK_DOCS["SURFACES"],
-            getattr(mesh, "surfaces", []),
-        ),
-        (
-            "REGION-VOLUMES",
-            LEGACY_CALLBACK_DOCS["REGION-VOLUMES"],
-            getattr(mesh, "region_volumes", []),
-        ),
-    ]
-
-
-def _callback_accepts_piece_number(callback):
-    try:
-        signature = inspect.signature(callback)
-    except (TypeError, ValueError):
-        return True
-
-    try:
-        signature.bind_partial(0, 0, [])
-        return True
-    except TypeError:
-        return False
-
-
-def _invoke_callback(callback, accepts_piece_number, nr_piece, nr_step, mesh):
-    payload = _mesh_payload(mesh)
-    if accepts_piece_number:
-        callback(nr_piece, nr_step, payload)
-    else:
-        callback(nr_step, payload)
 
 
 def do_every_n_steps_driver(nr_steps_per_bunch, callback, engine_func):
@@ -142,22 +61,14 @@ def do_every_n_steps_driver(nr_steps_per_bunch, callback, engine_func):
 
 def make_mg_gendriver(interval, callback):
     """
-    Returns a gendriver compatible with both the legacy piece-aware API and the
-    simplified direct-driver test usage.
+    Returns a gendriver using the callback signature:
+    callback(piece_number, iteration_step, mesh)
     """
-    accepts_piece_number = _callback_accepts_piece_number(callback)
-
     def gendriver(piece_or_engine):
         if callable(piece_or_engine):
             return do_every_n_steps_driver(
                 interval,
-                lambda nr_step, mesh: _invoke_callback(
-                    callback,
-                    accepts_piece_number,
-                    0,
-                    nr_step,
-                    mesh,
-                ),
+                lambda nr_step, mesh: callback(0, nr_step, mesh),
                 piece_or_engine,
             )
 
@@ -166,13 +77,7 @@ def make_mg_gendriver(interval, callback):
         def driver(engine_func):
             return do_every_n_steps_driver(
                 interval,
-                lambda nr_step, mesh: _invoke_callback(
-                    callback,
-                    accepts_piece_number,
-                    nr_piece,
-                    nr_step,
-                    mesh,
-                ),
+                lambda nr_step, mesh: callback(nr_piece, nr_step, mesh),
                 engine_func,
             )
 

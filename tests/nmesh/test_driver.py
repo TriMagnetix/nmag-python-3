@@ -4,7 +4,6 @@ from nmesh.mesher.driver import (
     MeshEngineStatus,
     MeshEngineCommand,
     do_every_n_steps_driver,
-    _callback_accepts_piece_number,
 )
 
 
@@ -33,9 +32,11 @@ def make_engine(limit, mesh_factory):
 
 def test_driver_cadence():
     steps = []
+    pieces = []
     payloads = []
 
-    def callback(step, mesh):
+    def callback(piece, step, mesh):
+        pieces.append(piece)
         steps.append(step)
         payloads.append(mesh)
 
@@ -49,13 +50,14 @@ def test_driver_cadence():
     driver = make_mg_gendriver(3, callback)
     driver(make_engine(10, mesh_factory))
 
+    assert pieces == [0, 0, 0]
     assert steps == [3, 6, 9]
     for payload in payloads:
         assert isinstance(payload, list)
         assert payload[0][0] == "COORDS"
 
 
-def test_driver_supports_legacy_callback_signature_and_piece_numbers():
+def test_driver_passes_piece_numbers_and_raw_mesh():
     calls = []
 
     class MockMesh:
@@ -73,28 +75,23 @@ def test_driver_supports_legacy_callback_signature_and_piece_numbers():
     driver(7)(make_engine(5, MockMesh))
 
     assert [call[:2] for call in calls] == [(7, 2), (7, 4)]
-    payload = calls[0][2]
-    assert [tag for tag, _, _ in payload] == [
-        "COORDS",
-        "LINKS",
-        "SIMPLICES",
-        "POINT-BODIES",
-        "SURFACES",
-        "REGION-VOLUMES",
-    ]
-    assert payload[0][2] == [[0.0, 0.0, 0.0]]
+    assert isinstance(calls[0][2], MockMesh)
+    assert calls[0][2].points == [[0.0, 0.0, 0.0]]
 
 
 def test_driver_handles_large_step_counts_without_recursion():
     steps = []
+    pieces = []
 
-    def callback(step, mesh):
+    def callback(piece, step, mesh):
+        pieces.append(piece)
         steps.append(step)
 
     driver = make_mg_gendriver(100, callback)
     status, _ = driver(make_engine(1100, lambda: []))
 
     assert status == MeshEngineStatus.FINISHED_STEP_LIMIT_REACHED
+    assert all(piece == 0 for piece in pieces)
     assert steps[0] == 100
     assert steps[-1] == 1000
     assert len(steps) == 10
@@ -114,47 +111,11 @@ def test_do_every_n_steps_driver_invalid_interval():
         do_every_n_steps_driver(-5, callback, engine)
 
 
-def test_callback_accepts_piece_number_detection():
-    """Test signature detection for callbacks."""
-
-    # Two-argument callback (no piece number)
-    def callback_2_args(step, mesh):
-        pass
-
-    assert not _callback_accepts_piece_number(callback_2_args)
-
-    # Three-argument callback (with piece number)
-    def callback_3_args(piece, step, mesh):
-        pass
-
-    assert _callback_accepts_piece_number(callback_3_args)
-
-    # Lambda with 2 args
-    assert not _callback_accepts_piece_number(lambda step, mesh: None)
-
-    # Lambda with 3 args
-    assert _callback_accepts_piece_number(lambda piece, step, mesh: None)
-
-
-def test_callback_accepts_piece_number_with_non_inspectable():
-    """Test that non-inspectable callables default to True."""
-
-    # Built-in functions can't be inspected
-    class NonInspectable:
-        def __call__(self, *args):
-            pass
-
-    obj = NonInspectable()
-    # Should default to True when inspection fails
-    result = _callback_accepts_piece_number(obj)
-    assert isinstance(result, bool)
-
-
 def test_driver_stops_on_force_equilibrium():
     """Test that driver properly handles force equilibrium status."""
     steps = []
 
-    def callback(step, mesh):
+    def callback(piece, step, mesh):
         steps.append(step)
 
     def engine_that_reaches_equilibrium(cmd):
@@ -173,7 +134,7 @@ def test_driver_handles_immediate_extract():
     """Test driver when engine immediately produces mesh."""
     meshes = []
 
-    def callback(step, mesh):
+    def callback(piece, step, mesh):
         meshes.append(mesh)
 
     class ImmediateEngine:
