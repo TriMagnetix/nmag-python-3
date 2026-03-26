@@ -10,7 +10,7 @@ from . import utils
 
 from .backend import RawMesh, backend
 from .mesher import MeshingParameters, make_mg_gendriver
-from .meshio_support import load_raw_mesh_with_meshio, meshio_available, save_raw_mesh_with_meshio
+from .meshio_support import load_raw_mesh_with_meshio, save_raw_mesh_with_meshio
 
 # Setup logging
 log = logging.getLogger(__name__)
@@ -118,10 +118,8 @@ class MeshBase:
             return
 
         if suffix not in PYFEM_SUFFIXES:
-            if meshio_available():
-                save_raw_mesh_with_meshio(path, self.raw_mesh)
-                return
-            raise RuntimeError("meshio is required to save non-PYFEM mesh formats")
+            save_raw_mesh_with_meshio(path, self.raw_mesh)
+            return
 
         if isinstance(self.raw_mesh, RawMesh):
             write_mesh(_raw_mesh_as_legacy_write_data(self.raw_mesh), out=path)
@@ -328,12 +326,8 @@ class MeshFromFile(MeshBase):
             raw = backend.mesh_readfile(str(path), reorder, distribute)
         elif _is_nmesh_hdf5_file(path):
             raw = backend.mesh_readfile(str(path), reorder, distribute)
-        elif meshio_available():
-            raw = load_raw_mesh_with_meshio(path)
         else:
-            raise ValueError(
-                f"Unknown mesh file format or meshio is unavailable: {filename}"
-            )
+            raw = load_raw_mesh_with_meshio(path)
 
         super().__init__(raw)
 

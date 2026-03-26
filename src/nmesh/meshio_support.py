@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 import meshio
@@ -15,10 +13,6 @@ _CELL_TYPE_BY_DIM = {
 }
 
 _DIM_BY_CELL_TYPE = {value: key for key, value in _CELL_TYPE_BY_DIM.items()}
-
-
-def meshio_available() -> bool:
-    return True
 
 
 def _cell_type_for(raw_mesh: RawMesh) -> str:
