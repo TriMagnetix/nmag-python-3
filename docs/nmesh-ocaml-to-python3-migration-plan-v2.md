@@ -16,6 +16,13 @@ This plan details the migration of the `nmesh` library from a hybrid Python 2 / 
 - Public API behavior is the compatibility boundary; internal compatibility is not required.
 - Any intentional public API break must be documented and covered by updated tests.
 
+### Low-Risk Extraction Rule
+- Prefer extracting low-coupling pieces from `nmesh.py` early, before the full meshing engine port is complete.
+- Good early candidates include pure data models, thin data containers, file-format serializers/parsers, standalone helper functions, and narrowly scoped geometry/CSG wrappers.
+- Examples include `RawMesh`, ASCII mesh read/write helpers such as `write_mesh`, file-type detection helpers, and small mesh-construction utilities that do not own meshing-engine state.
+- Keep the public `nmesh` import surface stable during these moves by re-exporting migrated symbols from `nmesh/__init__.py`.
+- Use these extractions to shrink the monolith first, create clearer test seams, and reduce risk before tackling the core meshing engine and relaxation loop.
+
 ## 2. Proposed Module Structure (`nmesh/` directory)
 The `nmesh` package will be reorganized as follows:
 
@@ -71,6 +78,8 @@ nmesh/
     1. Mirror `opt_mesher_defaults` values and field structure in `nmesh.mesher.meshing_parameters`.
     2. Implement full `MeshingParameters` setter mapping in pure Python.
     3. Port callback cadence and callback flow used by `make_mg_gendriver`.
+    4. Migrate `nmesh.py` symbols that directly belong to mesher configuration and driver setup.
+       This includes `get_default_meshing_parameters` and the callback/mesher-configuration portion of `Mesh.__init__`, but does not include file I/O helpers such as `write_mesh`.
 - **Acceptance:**
     1. Setter-based tests reproduce expected overrides in `tests/nmesh/test_defaults.py`.
     2. Callback interval tests verify invocation cadence and the current callback contract.
@@ -82,6 +91,8 @@ nmesh/
     2. Transition to NumPy-compatible Signed Distance Functions (SDFs).
     3. Implement affine transform logic (`shift`, `scale`, `rotate`) using matrix multiplication.
     4. Implement CSG operations: `union`, `difference`, `intersection`.
+    5. Extract geometry-facing `nmesh.py` symbols into `nmesh.geometry` modules.
+       This includes `MeshObject`, `Box`, `Ellipsoid`, `Conic`, `Helix`, and the `union` / `difference` / `intersect` helpers.
 - **Acceptance:**
     1. Geometry tests validate in/out classification in `tests/nmesh/test_geometry.py`.
     2. Transform order tests validate equivalence to OCaml semantics.
@@ -106,6 +117,8 @@ nmesh/
     1. Implement `points`, `simplices`, `regions`, `links`, and `surfaces` accessors.
     2. Use `scipy.spatial.Delaunay` for adjacency and surface extraction.
     3. Implement cache invalidation logic for `MeshBase`.
+    4. Consolidate query-oriented `nmesh.py` state wrappers into the long-term core/query surface.
+       This includes `MeshBase`, cached property accessors, `outer_corners`, `to_lists`, and `tolists`.
 - **Acceptance:**
     1. Accessor tests pass for populated meshes and edge cases.
     2. Cache tests validate stale-data invalidation when nodes are scaled.
@@ -114,8 +127,13 @@ nmesh/
 **Goal:** Complete pure-Python constructor and file I/O parity.
 - **Work Packages:**
     1. Port ASCII `# PYFEM` reader/writer rules.
+       This includes extracting disconnected legacy helpers such as `write_mesh` and file-type detection into `nmesh.io.ascii` as an early, low-risk step.
     2. Implement `MeshFromFile`, `load`, `save` without OCaml backend.
     3. Implement HDF5 compatibility via `h5py` for all core datasets.
+    4. Migrate constructor and serialization helpers that are independent of the core relaxation engine.
+       This includes `_is_nmesh_ascii_file`, `_is_nmesh_hdf5_file`, `hdf5_mesh_get_permutation`, `MeshFromFile`, `load`, `save`, `_raw_mesh_as_legacy_write_data`, and `write_mesh`.
+    5. Keep simple mesh-construction utilities grouped with constructor work when they primarily exist to build `RawMesh` instances rather than to run the meshing engine.
+       This includes `mesh_from_points_and_simplices`, `generate_1d_mesh_components`, and `generate_1d_mesh`.
 - **Acceptance:**
     1. ASCII and HDF5 round-trip tests preserve topology and metadata in `tests/nmesh/test_io.py`.
 
