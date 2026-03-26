@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from nmesh.mesher import (
+from nmesh.mesher.meshing_parameters import (
     MeshingParameters,
     default_initial_relaxation_weight,
     default_relaxation_force_fun,

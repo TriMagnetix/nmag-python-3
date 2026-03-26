@@ -1,10 +1,8 @@
 import pytest
-from nmesh.mesher import (
+from nmesh.mesher.driver import (
     make_mg_gendriver,
     MeshEngineStatus,
     MeshEngineCommand,
-)
-from nmesh.mesher.driver import (
     do_every_n_steps_driver,
     _callback_accepts_piece_number,
 )
