@@ -4,6 +4,8 @@ from typing import Any, Dict
 
 
 class _CasePreservingConfigParser(configparser.ConfigParser):
+    # ConfigParser lowercases option names by default. We keep original case
+    # so legacy/mixed-case feature keys round-trip without silent renaming.
     def optionxform(self, optionstr: str) -> str:
         return optionstr
 
@@ -54,6 +56,7 @@ class MockFeatures:
 
     def from_file(self, file_path):
         """Loads INI-style features from a file."""
+        # Use the case-preserving parser so key casing in config files is kept.
         parser = _CasePreservingConfigParser(
             delimiters=("=", ":"),
             interpolation=None,
@@ -64,6 +67,7 @@ class MockFeatures:
 
     def from_string(self, string):
         """Loads INI-style features from a string."""
+        # Keep behavior consistent with from_file for all ingestion paths.
         parser = _CasePreservingConfigParser(
             delimiters=("=", ":"),
             interpolation=None,
