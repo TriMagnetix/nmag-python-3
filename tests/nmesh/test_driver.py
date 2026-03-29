@@ -157,3 +157,166 @@ def test_driver_handles_immediate_extract():
     driver(engine.run)
 
     assert len(meshes) >= 1
+
+
+def test_gendriver_with_multiple_pieces():
+    """Test driver with multiple piece numbers for multi-body meshes."""
+    callbacks = []
+
+    def callback(piece, step, mesh):
+        callbacks.append((piece, step))
+
+    def mesh_factory():
+        return [("COORDS", "Coordinates", [])]
+
+    driver = make_mg_gendriver(5, callback)
+
+    # Test piece 0
+    driver(make_engine(15, mesh_factory))
+    piece_0_calls = [cb for cb in callbacks if cb[0] == 0]
+    assert piece_0_calls == [(0, 5), (0, 10)]
+
+    # Reset and test piece 1
+    callbacks.clear()
+    driver(1)(make_engine(15, mesh_factory))
+    piece_1_calls = [cb for cb in callbacks if cb[0] == 1]
+    assert piece_1_calls == [(1, 5), (1, 10)]
+
+    # Reset and test piece 2
+    callbacks.clear()
+    driver(2)(make_engine(15, mesh_factory))
+    piece_2_calls = [cb for cb in callbacks if cb[0] == 2]
+    assert piece_2_calls == [(2, 5), (2, 10)]
+
+
+def test_driver_callback_receives_correct_step_numbers():
+    """Verify callback gets step number where extraction was scheduled, not after."""
+    steps = []
+
+    def callback(piece, step, mesh):
+        steps.append(step)
+
+    driver = make_mg_gendriver(7, callback)
+    driver(make_engine(30, lambda: []))
+
+    # Should be called at steps 7, 14, 21, 28
+    assert steps == [7, 14, 21, 28]
+
+
+def test_driver_with_single_step_interval():
+    """Test driver with interval=1 calls callback at every step during meshing.
+
+    Note: The callback is NOT called when the engine finishes - only during
+    intermediate mesh extractions. With limit=5, the engine takes 6 DO_STEP
+    commands before finishing (including initial step from nr_step=0).
+    """
+    steps = []
+
+    def callback(piece, step, mesh):
+        steps.append(step)
+
+    driver = make_mg_gendriver(1, callback)
+    driver(make_engine(5, lambda: []))
+
+    # Callbacks at steps 1, 2, 3, 4 (NOT 5 - that's when it finishes)
+    # Step 0: DO_STEP (initial, no extraction)
+    # Step 1: DO_EXTRACT → callback(1) → DO_STEP
+    # Step 2: DO_EXTRACT → callback(2) → DO_STEP
+    # Step 3: DO_EXTRACT → callback(3) → DO_STEP
+    # Step 4: DO_EXTRACT → callback(4) → DO_STEP (this makes engine.step > limit)
+    # Engine returns FINISHED, no callback
+    assert steps == [1, 2, 3, 4]
+
+
+def test_driver_never_calls_callback_at_step_zero():
+    """Verify callback is never invoked at step 0, even with interval=1."""
+    steps = []
+
+    def callback(piece, step, mesh):
+        steps.append(step)
+
+    driver = make_mg_gendriver(1, callback)
+    driver(make_engine(10, lambda: []))
+
+    # Step 0 should never appear
+    assert 0 not in steps
+    assert steps[0] == 1  # First callback should be at step 1
+
+
+def test_driver_step_counting_across_extractions():
+    """Verify driver's nr_step counter (callback cadence) vs engine's internal steps.
+
+    Important distinction:
+    - driver's nr_step: tracks callback cadence (when to call callback)
+    - engine's step_count: internal engine state (how many DO_STEPs received)
+
+    These are decoupled because extractions (DO_EXTRACT) don't increment engine steps.
+    """
+    driver_steps = []
+    engine_steps_at_callback = []
+
+    class TrackingEngine:
+        def __init__(self):
+            self.step_count = 0
+
+        def run(self, cmd):
+            if cmd == MeshEngineCommand.DO_STEP:
+                self.step_count += 1
+                if self.step_count >= 13:
+                    return MeshEngineStatus.FINISHED_STEP_LIMIT_REACHED, None
+                return MeshEngineStatus.CAN_CONTINUE, self.run
+
+            if cmd == MeshEngineCommand.DO_EXTRACT:
+                # Extraction doesn't increment engine's step_count
+                # It just returns current state
+                return MeshEngineStatus.PRODUCED_INTERMEDIATE_MESH, (
+                    {"engine_steps": self.step_count},
+                    self.run,
+                )
+
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+    def callback(piece, nr_step, mesh):
+        driver_steps.append(nr_step)
+        engine_steps_at_callback.append(mesh.get("engine_steps"))
+
+    engine = TrackingEngine()
+    driver = make_mg_gendriver(3, callback)
+    driver(engine.run)
+
+    # Driver's nr_step values when callbacks occur
+    assert driver_steps == [3, 6, 9]
+
+    # Engine's internal step_count at each extraction
+    # After initial DO_STEP at driver nr_step=0: engine.step_count=1
+    # After 2 more DO_STEPs to reach driver nr_step=3: engine.step_count=4
+    # The DO_EXTRACT doesn't increment engine.step_count
+    assert engine_steps_at_callback == [4, 7, 10]
+
+
+def test_driver_with_piece_number_zero_explicitly():
+    """Test that driver(0) behaves identically to driver(callable)."""
+    callbacks_direct = []
+    callbacks_piece_0 = []
+
+    def callback_direct(piece, step, mesh):
+        callbacks_direct.append((piece, step))
+
+    def callback_piece_0(piece, step, mesh):
+        callbacks_piece_0.append((piece, step))
+
+    driver1 = make_mg_gendriver(5, callback_direct)
+    driver2 = make_mg_gendriver(5, callback_piece_0)
+
+    # Direct call (should default to piece 0)
+    driver1(make_engine(15, lambda: []))
+
+    # Explicit piece 0 call
+    driver2(0)(make_engine(15, lambda: []))
+
+    # Both should have piece number 0
+    assert all(cb[0] == 0 for cb in callbacks_direct)
+    assert all(cb[0] == 0 for cb in callbacks_piece_0)
+
+    # Step numbers should match
+    assert [cb[1] for cb in callbacks_direct] == [cb[1] for cb in callbacks_piece_0]

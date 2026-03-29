@@ -9,7 +9,7 @@ from mock_features import MockFeatures
 
 log = logging.getLogger(__name__)
 
-# Point density constants, these control probabilistic insertion/deletion of mesh points during relaxation
+# Point density constants: Control probabilistic insertion/deletion of mesh points during relaxation.
 DENSITY_ADD_PROBABILITY = 0.1  # 10% chance to add point when density too low
 FORCE_LOW_ADD_PROBABILITY = 0.2  # 20% chance to add when force < threshold
 FORCE_LOW_THRESHOLD = 0.07  # Force threshold below which points may be added
@@ -126,8 +126,20 @@ class SimplexRegion(IntEnum):
     INSIDE = 1
 
 
-def default_initial_relaxation_weight(iteration_step, max_step, init_val, final_val):
-    """Linear function from init_val to final_val, saturating at max_step."""
+def default_initial_relaxation_weight(
+    iteration_step: int, max_step: int, init_val: float, final_val: float
+) -> float:
+    """Linear function from init_val to final_val, saturating at max_step.
+
+    Args:
+        iteration_step: Current iteration step number
+        max_step: Maximum number of steps for interpolation
+        init_val: Initial weight value at step 0
+        final_val: Final weight value at max_step and beyond
+
+    Returns:
+        Interpolated weight value between init_val and final_val
+    """
     if max_step <= 0:
         return final_val
     return init_val + (final_val - init_val) * min(
@@ -135,15 +147,32 @@ def default_initial_relaxation_weight(iteration_step, max_step, init_val, final_
     )
 
 
-def default_relaxation_force_fun(reduced_distance):
-    """Repulsing force between two mobile nodes."""
+def default_relaxation_force_fun(reduced_distance: float) -> float:
+    """Repulsing force between two mobile nodes.
+
+    Args:
+        reduced_distance: Distance normalized by ideal neighbor distance
+
+    Returns:
+        Repulsive force magnitude (0.0 if distance > 1.0, else 1.0 - distance)
+    """
     if reduced_distance > 1.0:
         return 0.0
     return 1.0 - reduced_distance
 
 
-def default_boundary_node_force_fun(reduced_distance):
-    """Strongly repelling potential for boundary points."""
+def default_boundary_node_force_fun(reduced_distance: float) -> float:
+    """Strongly repelling potential for boundary points.
+
+    This implements a 1/r - 1 potential that enforces strong repulsion
+    near boundary nodes to prevent mesh points from violating boundary conditions.
+
+    Args:
+        reduced_distance: Distance normalized by ideal neighbor distance
+
+    Returns:
+        Repulsive force magnitude (very large for small distances, 0.0 if distance > 1.0)
+    """
     if reduced_distance > 1.0:
         return 0.0
     if reduced_distance < EPSILON_DIVISION_SAFETY:
@@ -151,8 +180,21 @@ def default_boundary_node_force_fun(reduced_distance):
     return 1.0 / reduced_distance - 1.0
 
 
-def default_handle_point_density_fun(rng, avg_stats, thresh_add, thresh_del):
-    """Default function to insert or delete points based on density and force. 0"""
+def default_handle_point_density_fun(rng, avg_stats, thresh_add: float, thresh_del: float):
+    """Default function to insert or delete points based on density and force.
+
+    Implements probabilistic point insertion/deletion based on local Voronoi density
+    and neighbor force magnitudes. Matches OCaml mdefault_controller_handle_point_density_fun.
+
+    Args:
+        rng: Random number generator with .random() method
+        avg_stats: Tuple of (avg_density, avg_force) for the point
+        thresh_add: Density threshold below which points may be added
+        thresh_del: Density threshold above which points may be deleted
+
+    Returns:
+        PointFate enum: ADD_ANOTHER, DELETE, or DO_NOTHING
+    """
     avg_density, avg_force = avg_stats
     if avg_density < thresh_add:
         if rng.random() < DENSITY_ADD_PROBABILITY:
@@ -209,13 +251,17 @@ class MeshingParameters(MockFeatures):
 
     def _setup_defaults(self):
         self._params = {
+            # Volume determination
             "nr_probes_for_determining_volume": 100000,
+            # Boundary condition parameters
             "boundary_condition_acceptable_fuzz": 1e-6,
             "boundary_condition_max_nr_correction_steps": 200,
             "boundary_condition_debuglevel": 0,
+            # Relaxation parameters
             "relaxation_debuglevel": 0,
             "controller_step_limit_min": 500,
             "controller_max_time_step": 10.0,
+            # Function-based parameters (callbacks for physics and point management)
             "initial_relaxation_weight_fun": default_initial_relaxation_weight,
             "relaxation_force_fun": default_relaxation_force_fun,
             "boundary_node_force_fun": default_boundary_node_force_fun,
