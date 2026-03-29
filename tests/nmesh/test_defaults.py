@@ -28,7 +28,8 @@ def test_meshing_parameters_setters():
     assert params["max_steps"] == 2000
     assert params["controller_step_limit_max"] == 2000
 
-def test_meshing_parameters_preserve_legacy_setter_api():
+def test_meshing_parameters_preserve_public_setter_api():
+    """Verify all public parameter setters are dynamically generated."""
     params = MeshingParameters()
     for setter_name in (
         "set_shape_force_scale",
@@ -83,7 +84,8 @@ def test_meshing_parameters_apply_to_mesher():
     assert mesher["parameters"]["controller_shape_force_scale"] == 0.5
     assert mesher["parameters"]["controller_step_limit_max"] == 2000
 
-def test_meshing_parameters_can_load_legacy_config_string():
+def test_meshing_parameters_can_load_config_string():
+    """Test loading config with public API names (user-friendly INI format)."""
     params = MeshingParameters(
         string="""
 [nmesh-3D]
@@ -93,7 +95,9 @@ max_steps : 1500
     )
     params.dim = 3
 
+    # Can access by public name
     assert params["shape_force_scale"] == 0.25
+    # Can also access by internal name
     assert params["controller_shape_force_scale"] == 0.25
     assert params["max_steps"] == 1500
     assert params["controller_step_limit_max"] == 1500
@@ -214,18 +218,22 @@ def test_default_handle_point_density_fun_do_nothing():
 
 
 def test_to_mesher_config_returns_resolved_dict():
-    """Test that to_mesher_config returns dict with internal parameter names."""
+    """Test that to_mesher_config returns dict with internal parameter names.
+
+    This verifies the public API → internal name translation. Users provide
+    concise names, but the mesher receives verbose, namespaced names.
+    """
     params = MeshingParameters()
-    params["shape_force_scale"] = 0.7
+    params["shape_force_scale"] = 0.7  # Public API name
     params["max_steps"] = 1500
 
     config = params.to_mesher_config(dim=3)
 
-    # Should have internal names
+    # Should have internal names (what mesher expects)
     assert config["controller_shape_force_scale"] == 0.7
     assert config["controller_step_limit_max"] == 1500
 
-    # Should NOT have legacy names (only internal names in resolved config)
+    # Should NOT have public API names (mesher uses internal names)
     assert "shape_force_scale" not in config
     assert "max_steps" not in config
 

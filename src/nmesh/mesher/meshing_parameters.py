@@ -26,7 +26,13 @@ EPSILON_DIVISION_SAFETY = 1e-15
 
 @dataclass(frozen=True, slots=True)
 class ParameterSpec:
-    legacy_name: str
+    """Specification for a meshing parameter with public and internal names.
+
+    The public_name is the user-friendly API (concise, intuitive).
+    The internal_name is the implementation detail (verbose, namespaced).
+    This separation is good design even without backward compatibility concerns.
+    """
+    public_name: str
     internal_name: str
     default: int | float
     cast: type[int] | type[float]
@@ -87,32 +93,16 @@ PUBLIC_PARAMETER_SPECS = (
     ),
 )
 
-PUBLIC_PARAMETER_SPECS_BY_LEGACY = {
-    spec.legacy_name: spec for spec in PUBLIC_PARAMETER_SPECS
+PUBLIC_PARAMETER_SPECS_BY_NAME = {
+    spec.public_name: spec for spec in PUBLIC_PARAMETER_SPECS
 }
 
-LEGACY_TO_INTERNAL = {
-    spec.legacy_name: spec.internal_name for spec in PUBLIC_PARAMETER_SPECS
+PUBLIC_TO_INTERNAL = {
+    spec.public_name: spec.internal_name for spec in PUBLIC_PARAMETER_SPECS
 }
-INTERNAL_TO_LEGACY = {
-    spec.internal_name: spec.legacy_name for spec in PUBLIC_PARAMETER_SPECS
+INTERNAL_TO_PUBLIC = {
+    spec.internal_name: spec.public_name for spec in PUBLIC_PARAMETER_SPECS
 }
-LEGACY_SETTER_NAMES = (
-    "shape_force_scale",
-    "volume_force_scale",
-    "neigh_force_scale",
-    "irrel_elem_force_scale",
-    "time_step_scale",
-    "thresh_add",
-    "thresh_del",
-    "topology_threshold",
-    "tolerated_rel_move",
-    "max_steps",
-    "initial_settling_steps",
-    "sliver_correction",
-    "smallest_volume_ratio",
-    "max_relaxation",
-)
 
 
 class PointFate(IntEnum):
@@ -226,14 +216,19 @@ def default_handle_point_density_fun(rng, avg_stats, thresh_add: float, thresh_d
 
 
 def _candidate_keys(name: str) -> list[str]:
+    """Returns all possible names (public and internal) for a parameter.
+
+    This allows users to refer to parameters by either their public API name
+    or the internal implementation name, whichever is more convenient.
+    """
     keys = [name]
-    internal = LEGACY_TO_INTERNAL.get(name)
-    legacy = INTERNAL_TO_LEGACY.get(name)
+    internal = PUBLIC_TO_INTERNAL.get(name)
+    public = INTERNAL_TO_PUBLIC.get(name)
 
     if internal is not None and internal not in keys:
         keys.append(internal)
-    if legacy is not None and legacy not in keys:
-        keys.append(legacy)
+    if public is not None and public not in keys:
+        keys.append(public)
 
     return keys
 
@@ -284,8 +279,13 @@ class MeshingParameters(MockFeatures):
         return None
 
     def _canonical_key(self, name: str) -> str:
-        internal = LEGACY_TO_INTERNAL.get(name, name)
-        if internal in self._params or name in LEGACY_TO_INTERNAL:
+        """Converts public API names to internal parameter names.
+
+        Always stores parameters internally using verbose, namespaced names
+        for clarity, even when users provide concise public names.
+        """
+        internal = PUBLIC_TO_INTERNAL.get(name, name)
+        if internal in self._params or name in PUBLIC_TO_INTERNAL:
             return internal
         return name
 
@@ -311,23 +311,33 @@ class MeshingParameters(MockFeatures):
         self.set("user-modifications", canonical, value)
 
     def _sync_dimension_section(self, dim: int) -> str:
+        """Syncs user modifications to dimension-specific config section.
+
+        Converts internal parameter names back to public names when writing
+        to config sections for user-friendly INI file format.
+        """
         self.dim = dim
         section = self._get_section_name()
 
         for key, value in self.items("user-modifications"):
             if not isinstance(key, str):
                 continue
-            section_key = INTERNAL_TO_LEGACY.get(key, key)
+            section_key = INTERNAL_TO_PUBLIC.get(key, key)
             self.set(section, section_key, value)
 
         return section
 
     def to_mesher_config(self, dim):
+        """Resolves all parameters to internal names for mesher consumption.
+
+        Returns a dict with internal parameter names, suitable for passing
+        to the meshing engine. This keeps the engine code clean and consistent.
+        """
         self._sync_dimension_section(dim)
 
         resolved = {}
         for spec in PUBLIC_PARAMETER_SPECS:
-            value = self[spec.legacy_name]
+            value = self[spec.public_name]
             if value is None:
                 continue
             resolved[spec.internal_name] = spec.cast(value)
@@ -335,11 +345,12 @@ class MeshingParameters(MockFeatures):
         return resolved
 
     def apply_to_mesher(self, mesher, dim):
+        """Applies resolved parameters to mesher config using internal names."""
         self._sync_dimension_section(dim)
         mesher.setdefault("parameters", {})
 
         for spec in PUBLIC_PARAMETER_SPECS:
-            value = self[spec.legacy_name]
+            value = self[spec.public_name]
             if value is None:
                 continue
             mesher["parameters"][spec.internal_name] = spec.cast(value)
@@ -347,15 +358,16 @@ class MeshingParameters(MockFeatures):
         return mesher
 
     def _set_parameter(self, name, value):
-        self[name] = PUBLIC_PARAMETER_SPECS_BY_LEGACY[name].cast(value)
+        """Internal helper for generated setter methods."""
+        self[name] = PUBLIC_PARAMETER_SPECS_BY_NAME[name].cast(value)
 
     def copy(self):
         return copy.deepcopy(self)
 
 
-for _name in LEGACY_SETTER_NAMES:
+for _spec in PUBLIC_PARAMETER_SPECS:
     setattr(
         MeshingParameters,
-        f"set_{_name}",
-        partialmethod(MeshingParameters._set_parameter, _name),
+        f"set_{_spec.public_name}",
+        partialmethod(MeshingParameters._set_parameter, _spec.public_name),
     )
