@@ -1,18 +1,24 @@
 from pathlib import Path
+from typing import Any
 
 import meshio
 import numpy as np
+from numpy.typing import NDArray
 
 from .backend import RawMesh
 
 
-_CELL_TYPE_BY_DIM = {
+IntArray = NDArray[np.int_]
+FloatArray = NDArray[np.float64]
+
+
+_CELL_TYPE_BY_DIM: dict[int, str] = {
     1: "line",
     2: "triangle",
     3: "tetra",
 }
 
-_DIM_BY_CELL_TYPE = {value: key for key, value in _CELL_TYPE_BY_DIM.items()}
+_DIM_BY_CELL_TYPE: dict[str, int] = {value: key for key, value in _CELL_TYPE_BY_DIM.items()}
 
 
 def _cell_type_for(raw_mesh: RawMesh) -> str:
@@ -28,8 +34,8 @@ def _cell_type_for(raw_mesh: RawMesh) -> str:
     return _CELL_TYPE_BY_DIM.get(raw_mesh.dim, "tetra")
 
 
-def _regions_from_meshio(mesh, cell_type: str, count: int) -> list[int]:
-    cell_data_dict = getattr(mesh, "cell_data_dict", {})
+def _regions_from_meshio(mesh: meshio.Mesh, cell_type: str, count: int) -> list[int]:
+    cell_data_dict: dict[str, dict[str, NDArray[Any]]] = getattr(mesh, "cell_data_dict", {})
     for key in ("region", "gmsh:physical", "cell_tags", "gmsh:geometrical"):
         values_by_type = cell_data_dict.get(key, {})
         if cell_type in values_by_type:
@@ -38,9 +44,13 @@ def _regions_from_meshio(mesh, cell_type: str, count: int) -> list[int]:
 
 
 def save_raw_mesh_with_meshio(path: str | Path, raw_mesh: RawMesh) -> None:
+    """Write a raw mesh to any meshio-supported format."""
+
     cell_type = _cell_type_for(raw_mesh)
-    cells = [(cell_type, np.asarray(raw_mesh.simplices, dtype=int))]
-    cell_data = None
+    cells: list[tuple[str, IntArray]] = [
+        (cell_type, np.asarray(raw_mesh.simplices, dtype=int))
+    ]
+    cell_data: dict[str, list[IntArray]] | None = None
     if raw_mesh.regions:
         cell_data = {"region": [np.asarray(raw_mesh.regions, dtype=int)]}
 
@@ -53,8 +63,10 @@ def save_raw_mesh_with_meshio(path: str | Path, raw_mesh: RawMesh) -> None:
 
 
 def load_raw_mesh_with_meshio(path: str | Path) -> RawMesh:
+    """Load a raw mesh from any meshio-supported simplex format."""
+
     mesh = meshio.read(Path(path))
-    supported = next(
+    supported: tuple[str, IntArray] | None = next(
         ((cell_block.type, cell_block.data) for cell_block in mesh.cells if cell_block.type in _DIM_BY_CELL_TYPE),
         None,
     )
