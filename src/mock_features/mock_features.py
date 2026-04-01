@@ -1,4 +1,14 @@
+import configparser
+from io import StringIO
 from typing import Any, Dict
+
+
+class _CasePreservingConfigParser(configparser.ConfigParser):
+    # ConfigParser lowercases option names by default. We keep original case
+    # so legacy/mixed-case feature keys round-trip without silent renaming.
+    def optionxform(self, optionstr: str) -> str:
+        return optionstr
+
 
 class MockFeatures:
     """
@@ -18,13 +28,52 @@ class MockFeatures:
             }
         }
 
+    @staticmethod
+    def _coerce_value(value: str) -> Any:
+        text = value.strip()
+        if text == "":
+            return text
+
+        lowered = text.lower()
+        if lowered in {"true", "false"}:
+            return lowered == "true"
+
+        try:
+            return int(text)
+        except ValueError:
+            pass
+
+        try:
+            return float(text)
+        except ValueError:
+            return text
+
+    def _load_from_parser(self, parser: configparser.ConfigParser):
+        for section in parser.sections():
+            self.add_section(section)
+            for name, value in parser.items(section):
+                self.set(section, name, self._coerce_value(value))
+
     def from_file(self, file_path):
-        """Stub for loading features from a file."""
-        pass
+        """Loads INI-style features from a file."""
+        # Use the case-preserving parser so key casing in config files is kept.
+        parser = _CasePreservingConfigParser(
+            delimiters=("=", ":"),
+            interpolation=None,
+        )
+        with open(file_path, encoding="utf-8") as stream:
+            parser.read_file(stream)
+        self._load_from_parser(parser)
 
     def from_string(self, string):
-        """Stub for loading features from a string."""
-        pass
+        """Loads INI-style features from a string."""
+        # Keep behavior consistent with from_file for all ingestion paths.
+        parser = _CasePreservingConfigParser(
+            delimiters=("=", ":"),
+            interpolation=None,
+        )
+        parser.read_file(StringIO(string))
+        self._load_from_parser(parser)
 
     def add_section(self, section: str):
         """Adds a section to the features if it doesn't exist."""
