@@ -7,6 +7,8 @@ from typing import Any
 
 from mock_features import MockFeatures
 
+from ..utils.constants import EPSILON_DIVISION
+
 log = logging.getLogger(__name__)
 
 # Point density constants: Control probabilistic insertion/deletion of mesh points during relaxation.
@@ -19,9 +21,6 @@ DENSITY_DELETE_SLOPE = 0.1  # Additional 10% per unit above threshold
 FORCE_HIGH_DELETE_BASE_PROBABILITY = 0.4  # Base 40% chance to delete when force too high
 FORCE_HIGH_DELETE_SLOPE = 0.1  # Additional 10% per unit above 0.5
 FORCE_HIGH_THRESHOLD = 0.5  # Force threshold above which points may be deleted
-
-# Safety epsilon for division operations
-EPSILON_DIVISION_SAFETY = 1e-15
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,7 +164,7 @@ def default_boundary_node_force_fun(reduced_distance: float) -> float:
     """
     if reduced_distance > 1.0:
         return 0.0
-    if reduced_distance < EPSILON_DIVISION_SAFETY:
+    if reduced_distance < EPSILON_DIVISION:
         return 1e12
     return 1.0 / reduced_distance - 1.0
 

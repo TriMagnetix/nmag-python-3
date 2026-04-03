@@ -1,3 +1,17 @@
+"""
+Geometric primitives and implicit surface definitions.
+
+This module provides pure-Python implementations of geometric primitives
+(Box, Ellipsoid, Conic, Helix) using NumPy-based signed distance functions,
+replacing the OCaml-based body primitives from mesh.ml.
+
+Each primitive is represented as an implicit body with a scalar field
+where positive values indicate interior points and negative values indicate
+exterior points. Transformations are applied via affine matrix composition.
+
+Part of Section 3 of the OCaml-to-Python migration.
+"""
+
 from __future__ import annotations
 
 import itertools
@@ -7,19 +21,18 @@ from dataclasses import dataclass
 from typing import Callable, Literal, TypeAlias
 
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
+from numpy.typing import ArrayLike
 
+from ..utils.types import BoolArray, FloatArray
 from .transform import (
     AffineTransform,
     inverse_axis_rotation,
     inverse_plane_rotation,
     inverse_scale,
     inverse_shift,
+    _as_vector,
 )
 
-
-FloatArray: TypeAlias = NDArray[np.float64]
-BoolArray: TypeAlias = NDArray[np.bool_]
 SignedField: TypeAlias = Callable[[FloatArray], FloatArray]
 ShiftTransform: TypeAlias = tuple[Literal["shift"], ArrayLike]
 ScaleTransform: TypeAlias = tuple[Literal["scale"], ArrayLike]
@@ -33,6 +46,9 @@ TransformationStep: TypeAlias = (
     | Rotate2DTransform
     | Rotate3DTransform
 )
+
+# Number of complete spiral rotations for the helix primitive (4 turns = 8π)
+_HELIX_SPIRAL_TURNS = 4.0
 
 __all__ = [
     "Body",
@@ -50,15 +66,6 @@ __all__ = [
 
 def _as_float_points(points: Sequence[Sequence[float]] | None) -> list[list[float]]:
     return [list(map(float, point)) for point in (points or [])]
-
-
-def _as_vector(values: ArrayLike, dim: int | None = None) -> FloatArray:
-    vector = np.asarray(values, dtype=float)
-    if vector.ndim != 1:
-        raise ValueError("Expected a one-dimensional vector")
-    if dim is not None and len(vector) != dim:
-        raise ValueError(f"Expected a vector of length {dim}, got {len(vector)}")
-    return vector.astype(np.float64, copy=False)
 
 
 def _coerce_query_points(points: ArrayLike, dim: int) -> tuple[FloatArray, bool]:
@@ -228,7 +235,7 @@ def bc_helix(
                 1.0,
             ),
         )
-        alpha = 8.0 * math.pi * axis_factor
+        alpha = 2.0 * math.pi * _HELIX_SPIRAL_TURNS * axis_factor
         spiral_direction = np.column_stack(
             (np.cos(alpha), np.sin(alpha), np.zeros_like(alpha))
         )

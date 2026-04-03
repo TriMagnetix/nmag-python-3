@@ -1,11 +1,21 @@
+"""
+Constructive Solid Geometry (CSG) operations for mesh objects.
+
+This module provides boolean operations (union, difference, intersection)
+for combining geometric primitives into complex shapes. Operations are
+implemented using signed distance field composition with NumPy.
+
+Part of Section 3 of the OCaml-to-Python migration.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import numpy as np
-from numpy.typing import ArrayLike
 
-from .primitives import Body, FloatArray, MeshObject, _make_body
+from ..utils.types import FloatArray
+from .primitives import Body, MeshObject, _make_body
 
 __all__ = ["union", "difference", "intersect"]
 
@@ -37,7 +47,21 @@ def _body_for(obj: MeshObject) -> Body:
     return obj.obj
 
 
-def _stack_evaluations(bodies: Sequence[Body], points: ArrayLike) -> FloatArray:
+def _stack_evaluations(bodies: Sequence[Body], points: FloatArray) -> FloatArray:
+    """
+    Evaluate multiple bodies at the same points and stack results.
+
+    Args:
+        bodies: Sequence of Body instances to evaluate
+        points: Array of shape (N, dim) containing query points
+
+    Returns:
+        Array of shape (len(bodies), N) containing signed distance values
+
+    Note:
+        Expects each body.evaluate() to return a 1D array of length N.
+        No shape validation is performed for performance reasons.
+    """
     return np.stack(
         [np.asarray(body.evaluate(points), dtype=float) for body in bodies],
         axis=0,
