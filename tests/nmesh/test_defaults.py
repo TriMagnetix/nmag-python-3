@@ -7,7 +7,7 @@ from nmesh.mesher.meshing_parameters import (
     default_boundary_node_force_fun,
     default_handle_point_density_fun,
     PointFate,
-    EPSILON_DIVISION_SAFETY,
+    EPSILON_DIVISION,
 )
 
 def test_meshing_parameters_defaults():
@@ -149,7 +149,7 @@ def test_default_boundary_node_force_fun():
     assert default_boundary_node_force_fun(1.0) == 0.0
 
     # Very small distance should return large repulsion
-    assert default_boundary_node_force_fun(EPSILON_DIVISION_SAFETY / 2) == 1e12
+    assert default_boundary_node_force_fun(EPSILON_DIVISION / 2) == 1e12
     assert default_boundary_node_force_fun(0.0) == 1e12
 
     # Normal distance: 1/d - 1
