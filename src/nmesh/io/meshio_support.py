@@ -8,6 +8,12 @@ import numpy as np
 from ..backend import RawMesh
 from .legacy_nmesh_hdf5 import load_raw_mesh_from_legacy_nmesh_hdf5
 
+try:
+    from meshio._exceptions import ReadError as MeshioReadError
+except ImportError:
+    # Fallback for older meshio versions
+    MeshioReadError = Exception
+
 
 _CELL_TYPE_BY_DIM = {
     1: "line",
@@ -20,7 +26,7 @@ _DIM_BY_CELL_TYPE = {value: key for key, value in _CELL_TYPE_BY_DIM.items()}
 
 def _cell_type_for(raw_mesh: RawMesh) -> str:
     """Return the meshio cell type that matches the raw mesh topology."""
-    if raw_mesh.simplices:
+    if raw_mesh.simplices and len(raw_mesh.simplices) > 0:
         simplex_size = len(raw_mesh.simplices[0])
         if simplex_size == 2:
             return "line"
@@ -82,19 +88,34 @@ def save_raw_mesh_with_meshio(path: str | Path, raw_mesh: RawMesh) -> None:
 
 
 def load_raw_mesh_with_meshio(path: str | Path) -> RawMesh:
-    """Load a raw mesh via ``meshio`` or the legacy ``.nmesh.h5`` fallback."""
+    """Load a raw mesh via ``meshio`` or the legacy ``.nmesh.h5`` fallback.
+
+    For ``.h5`` files, falls back to the legacy nmesh loader if meshio fails.
+    For other formats, only meshio is attempted.
+
+    Args:
+        path: Path to the mesh file.
+
+    Returns:
+        The loaded mesh as a RawMesh object.
+
+    Raises:
+        ValueError: If the file format is not supported or the file is malformed.
+            For .h5 files, includes error details from both loaders.
+        IOError/OSError: If the file cannot be read.
+    """
     path = Path(path)
     meshio_error = None
 
     try:
         return _load_raw_mesh_from_meshio(path)
-    except Exception as exc:
+    except (ValueError, KeyError, IOError, OSError, RuntimeError, MeshioReadError) as exc:
         meshio_error = exc
 
     if path.suffix.lower() == ".h5":
         try:
             return load_raw_mesh_from_legacy_nmesh_hdf5(path)
-        except Exception as legacy_exc:
+        except (ValueError, KeyError, IOError, OSError, RuntimeError, MeshioReadError) as legacy_exc:
             raise ValueError(
                 f"Unable to read {path} with meshio or the legacy nmesh HDF5 "
                 f"loader: meshio error was {meshio_error!r}; legacy loader "

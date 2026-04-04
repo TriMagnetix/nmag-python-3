@@ -1,6 +1,7 @@
 """Support for the legacy ``.nmesh.h5`` mesh format."""
 
 from pathlib import Path
+from typing import Any
 
 import h5py
 import numpy as np
@@ -8,7 +9,7 @@ import numpy as np
 from ..backend import RawMesh
 
 
-def _decode_hdf5_string(value) -> str | None:
+def _decode_hdf5_string(value: Any) -> str | None:
     """Convert HDF5 scalar or array string values into plain Python strings."""
     if value is None:
         return None
@@ -45,7 +46,7 @@ def _periodic_points_from_hdf5(periodic_raw: np.ndarray | None) -> list[list[int
         periodic = periodic.reshape(1, -1)
 
     return [
-        [int(index) for index in row.tolist() if int(index) != -1]
+        [idx for idx in row.tolist() if idx != -1]
         for row in periodic
     ]
 
@@ -64,7 +65,9 @@ def load_raw_mesh_from_legacy_nmesh_hdf5(path: str | Path) -> RawMesh:
             filetype_node[()] if filetype_node is not None else None
         )
         if filetype not in (None, "nmesh"):
-            raise ValueError(f"{path} is not a legacy nmesh HDF5 file")
+            raise ValueError(
+                f"{path} has filetype '{filetype}', expected 'nmesh'"
+            )
 
         try:
             points = np.asarray(mesh_group["points"][...], dtype=float)
@@ -88,6 +91,26 @@ def load_raw_mesh_from_legacy_nmesh_hdf5(path: str | Path) -> RawMesh:
             []
             if permutation_raw is None
             else np.asarray(permutation_raw[...], dtype=int).reshape(-1).tolist()
+        )
+
+    # Validate data consistency
+    if len(points) == 0:
+        raise ValueError(f"{path} contains no points")
+    if len(simplices) == 0:
+        raise ValueError(f"{path} contains no simplices")
+    if len(regions) != len(simplices):
+        raise ValueError(
+            f"{path} has mismatched regions ({len(regions)}) and simplices "
+            f"({len(simplices)})"
+        )
+
+    # Validate simplex indices are within bounds
+    simplices_list = simplices.tolist()
+    max_index = max(max(simplex) for simplex in simplices_list)
+    if max_index >= len(points):
+        raise ValueError(
+            f"{path} has simplex with out-of-bounds point index {max_index} "
+            f"(only {len(points)} points)"
         )
 
     return RawMesh(
