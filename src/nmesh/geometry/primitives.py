@@ -87,7 +87,21 @@ class Body:
         *,
         system_coords: bool,
     ) -> "Body":
-        """Return a copy of the body with one more affine transform applied."""
+        """Return a copy of the body with one more affine transform applied.
+
+        Args:
+            inverse_transform: Inverse affine map for the requested transformation.
+            system_coords: When `True`, apply the new transform in system/space
+                coordinates. When `False`, apply it in the body's local coordinates.
+
+        Returns:
+            A new body carrying the composed affine transform.
+
+        Note:
+            Composition order matters:
+            - `system_coords=True` applies the new transform outside the existing one
+            - `system_coords=False` applies the new transform inside the existing one
+        """
 
         combined = (
             self.transform.compose(inverse_transform)
@@ -177,7 +191,8 @@ def bc_frustum(
         axis_factor = (ap - axis_projection_center1) / axis_projection_delta
         radius_here = radius1 + radius_delta * axis_factor
         axis_projection = point1 + np.outer(axis_factor, axis)
-        axis_distance = np.linalg.norm(points - axis_projection, axis=1)
+        delta = points - axis_projection
+        axis_distance = np.sqrt(np.sum(delta * delta, axis=1))
         return np.minimum(out_top_bottom, radius_here - axis_distance)
 
     return evaluate
@@ -193,7 +208,7 @@ def bc_helix(
 
     point1 = _as_vector(center1, dim=3)
     point2 = _as_vector(center2, dim=3)
-    if radius1 <= 0.0 or radius2 <= 0.0:
+    if min(radius1, radius2) <= 0.0:
         raise ValueError("Helix radii must be positive")
 
     axis = point2 - point1
