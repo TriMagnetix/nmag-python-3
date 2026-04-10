@@ -10,7 +10,7 @@ from . import utils
 
 from .backend import RawMesh, backend
 from .mesher import MeshingParameters, make_mg_gendriver
-from .meshio_support import load_raw_mesh_with_meshio, save_raw_mesh_with_meshio
+from .io import load_raw_mesh_with_meshio, save_raw_mesh_with_meshio
 
 # Setup logging
 log = logging.getLogger(__name__)
