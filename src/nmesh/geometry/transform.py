@@ -5,8 +5,6 @@ This module provides affine transformation support for body primitives,
 including translation, scaling, and rotation operations. Transforms are
 composed using matrix multiplication to maintain efficiency when multiple
 operations are chained together.
-
-Part of Section 3 of the OCaml-to-Python migration.
 """
 
 from __future__ import annotations
@@ -16,17 +14,8 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import ArrayLike
 
-from ..utils.constants import EPSILON_SCALE
+from ..utils.constants import MIN_ABS_SCALE_FACTOR
 from ..utils.types import FloatArray
-
-__all__ = [
-    "AffineTransform",
-    "inverse_shift",
-    "inverse_scale",
-    "inverse_plane_rotation",
-    "inverse_axis_rotation",
-    "_as_vector",
-]
 
 
 def _as_vector(values: ArrayLike, dim: int | None = None) -> FloatArray:
@@ -87,8 +76,11 @@ def inverse_scale(factors: ArrayLike) -> AffineTransform:
     """Return the inverse transform for a per-axis scale."""
 
     scale = _as_vector(factors)
-    if np.any(np.abs(scale) < EPSILON_SCALE):
-        raise ValueError(f"Scale factors must be non-zero (absolute value >= {EPSILON_SCALE})")
+    if np.any(np.abs(scale) < MIN_ABS_SCALE_FACTOR):
+        raise ValueError(
+            "Scale factors must be non-zero "
+            f"(absolute value >= {MIN_ABS_SCALE_FACTOR})"
+        )
     return AffineTransform(np.diag(1.0 / scale), np.zeros(len(scale), dtype=float))
 
 

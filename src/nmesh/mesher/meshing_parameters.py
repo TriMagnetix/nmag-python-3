@@ -7,7 +7,7 @@ from typing import Any
 
 from mock_features import MockFeatures
 
-from ..utils.constants import EPSILON_DIVISION
+from ..utils.constants import MIN_DIVISION_MAGNITUDE
 
 log = logging.getLogger(__name__)
 
@@ -164,7 +164,7 @@ def default_boundary_node_force_fun(reduced_distance: float) -> float:
     """
     if reduced_distance > 1.0:
         return 0.0
-    if reduced_distance < EPSILON_DIVISION:
+    if reduced_distance < MIN_DIVISION_MAGNITUDE:
         return 1e12
     return 1.0 / reduced_distance - 1.0
 

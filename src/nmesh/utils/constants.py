@@ -7,14 +7,12 @@ floating-point comparisons.
 """
 
 __all__ = [
-    "EPSILON_SCALE",
-    "EPSILON_DIVISION",
+    "MIN_ABS_SCALE_FACTOR",
+    "MIN_DIVISION_MAGNITUDE",
 ]
 
-# Numerical tolerance for scale factor validation (geometry transformations)
-# Prevents numerical instability from very small scale factors in affine transforms
-EPSILON_SCALE = 1e-12
+# Smallest allowed absolute scale factor for affine transformations.
+MIN_ABS_SCALE_FACTOR = 1e-12
 
-# Safety epsilon for division operations (mesher computations)
-# Prevents division by zero in mesh relaxation and point density calculations
-EPSILON_DIVISION = 1e-15
+# Smallest divisor magnitude accepted before force-law clamping kicks in.
+MIN_DIVISION_MAGNITUDE = 1e-15

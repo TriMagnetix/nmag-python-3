@@ -4,8 +4,6 @@ Constructive Solid Geometry (CSG) operations for mesh objects.
 This module provides boolean operations (union, difference, intersection)
 for combining geometric primitives into complex shapes. Operations are
 implemented using signed distance field composition with NumPy.
-
-Part of Section 3 of the OCaml-to-Python migration.
 """
 
 from __future__ import annotations
@@ -16,8 +14,6 @@ import numpy as np
 
 from ..utils.types import FloatArray
 from .primitives import Body, MeshObject, _make_body
-
-__all__ = ["union", "difference", "intersect"]
 
 
 def _validate_objects(objects: Sequence[MeshObject], operation: str) -> tuple[MeshObject, ...]:

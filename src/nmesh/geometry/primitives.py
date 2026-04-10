@@ -8,8 +8,6 @@ replacing the OCaml-based body primitives from mesh.ml.
 Each primitive is represented as an implicit body with a scalar field
 where positive values indicate interior points and negative values indicate
 exterior points. Transformations are applied via affine matrix composition.
-
-Part of Section 3 of the OCaml-to-Python migration.
 """
 
 from __future__ import annotations
@@ -49,20 +47,6 @@ TransformationStep: TypeAlias = (
 
 # Number of complete spiral rotations for the helix primitive (4 turns = 8π)
 _HELIX_SPIRAL_TURNS = 4.0
-
-__all__ = [
-    "Body",
-    "Box",
-    "Conic",
-    "Ellipsoid",
-    "Helix",
-    "MeshObject",
-    "bc_box",
-    "bc_ellipsoid",
-    "bc_frustum",
-    "bc_helix",
-]
-
 
 def _as_float_points(points: Sequence[Sequence[float]] | None) -> list[list[float]]:
     return [list(map(float, point)) for point in (points or [])]
