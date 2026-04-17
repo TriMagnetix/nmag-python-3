@@ -167,7 +167,23 @@ class StubMeshBackend:
         cache,
         hints,
     ):
-        return RawMesh(dim=len(bb_min))
+        from .mesher.relaxation import mesh_bodies_raw as python_mesh_bodies_raw
+
+        return python_mesh_bodies_raw(
+            driver,
+            mesher,
+            bb_min,
+            bb_max,
+            mesh_ext,
+            objects,
+            a0,
+            density,
+            fixed,
+            mobile,
+            simply,
+            periodic,
+            hints,
+        )
 
     def mesh_from_points_and_simplices(
         self,
