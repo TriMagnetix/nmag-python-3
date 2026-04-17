@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import math
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from typing import Any, TextIO
 from pathlib import Path
-import itertools
 from . import utils
 
 from .backend import RawMesh, backend
+from .geometry import Box, Conic, Ellipsoid, Helix, MeshObject, difference, intersect, union
 from .mesher import MeshingParameters, make_mg_gendriver
 from .io import load_raw_mesh_with_meshio, save_raw_mesh_with_meshio
 
@@ -350,147 +349,6 @@ def load(filename, reorder=False, distribute=True):
 def save(mesh: MeshBase, filename: str | Path):
     """Alias for mesh.save for backward compatibility."""
     mesh.save(filename)
-
-# --- Geometry ---
-
-class MeshObject:
-    """Base class for geometric primitives and CSG operations."""
-    def __init__(
-        self,
-        dim: int,
-        fixed: Sequence[Sequence[float]] | None = None,
-        mobile: Sequence[Sequence[float]] | None = None,
-    ):
-        self.dim = dim
-        self.fixed_points = _as_float_points(fixed)
-        self.mobile_points = _as_float_points(mobile)
-        self.obj: Any = None
-
-    def shift(self, vector, system_coords=True):
-        self.obj = (backend.body_shifted_sc if system_coords else backend.body_shifted_bc)(self.obj, vector)
-    
-    def scale(self, factors):
-        self.obj = backend.body_scaled(self.obj, factors)
-    
-    def rotate(self, a1, a2, angle, system_coords=True):
-        rad = math.radians(angle)
-        self.obj = (backend.body_rotated_sc if system_coords else backend.body_rotated_bc)(self.obj, a1, a2, rad)
-
-    def rotate_3d(self, axis, angle, system_coords=True):
-        rad = math.radians(angle)
-        self.obj = (backend.body_rotated_axis_sc if system_coords else backend.body_rotated_axis_bc)(self.obj, axis, rad)
-
-    def transform(self, transformations: Iterable[tuple] | None, system_coords=True):
-        """Applies a list of transformation tuples."""
-        for t in transformations or []:
-            name, *args = t
-            match name:
-                case "shift":
-                    self.shift(args[0], system_coords)
-                case "scale":
-                    self.scale(args[0])
-                case "rotate":
-                    self.rotate(args[0][0], args[0][1], args[1], system_coords)
-                case "rotate2d":
-                    self.rotate(0, 1, args[0], system_coords)
-                case "rotate3d":
-                    self.rotate_3d(args[0], args[1], system_coords)
-                case _:
-                    raise ValueError(f"Unknown transformation {name!r}")
-
-class Box(MeshObject):
-    def __init__(
-        self,
-        p1,
-        p2,
-        transform=None,
-        fixed=None,
-        mobile=None,
-        system_coords=True,
-        use_fixed_corners=False,
-    ):
-        dim = len(p1)
-        fixed_points = _as_float_points(fixed)
-        if use_fixed_corners:
-            fixed_points.extend([list(c) for c in itertools.product(*zip(p1, p2))])
-        super().__init__(dim, fixed_points, mobile)
-        self.obj = backend.body_box([float(x) for x in p1], [float(x) for x in p2])
-        self.transform(transform, system_coords)
-
-class Ellipsoid(MeshObject):
-    def __init__(
-        self,
-        lengths,
-        transform=None,
-        fixed=None,
-        mobile=None,
-        system_coords=True,
-    ):
-        super().__init__(len(lengths), fixed, mobile)
-        self.obj = backend.body_ellipsoid([float(x) for x in lengths])
-        self.transform(transform, system_coords)
-
-class Conic(MeshObject):
-    def __init__(
-        self,
-        c1,
-        r1,
-        c2,
-        r2,
-        transform=None,
-        fixed=None,
-        mobile=None,
-        system_coords=True,
-    ):
-        super().__init__(len(c1), fixed, mobile)
-        self.obj = backend.body_frustum(c1, r1, c2, r2)
-        self.transform(transform, system_coords)
-
-class Helix(MeshObject):
-    def __init__(
-        self,
-        c1,
-        r1,
-        c2,
-        r2,
-        transform=None,
-        fixed=None,
-        mobile=None,
-        system_coords=True,
-    ):
-        super().__init__(len(c1), fixed, mobile)
-        self.obj = backend.body_helix(c1, r1, c2, r2)
-        self.transform(transform, system_coords)
-
-# --- CSG ---
-
-def union(objects: Sequence[MeshObject]) -> MeshObject:
-    if len(objects) < 2:
-        raise ValueError("Union requires at least two objects")
-    res = MeshObject(objects[0].dim)
-    for o in objects:
-        res.fixed_points.extend(o.fixed_points)
-        res.mobile_points.extend(o.mobile_points)
-    res.obj = backend.body_union([o.obj for o in objects])
-    return res
-
-def difference(mother: MeshObject, subtract: Sequence[MeshObject]) -> MeshObject:
-    res = MeshObject(mother.dim, mother.fixed_points[:], mother.mobile_points[:])
-    for o in subtract:
-        res.fixed_points.extend(o.fixed_points)
-        res.mobile_points.extend(o.mobile_points)
-    res.obj = backend.body_difference(mother.obj, [o.obj for o in subtract])
-    return res
-
-def intersect(objects: Sequence[MeshObject]) -> MeshObject:
-    if len(objects) < 2:
-        raise ValueError("Intersection requires at least two objects")
-    res = MeshObject(objects[0].dim)
-    for o in objects:
-        res.fixed_points.extend(o.fixed_points)
-        res.mobile_points.extend(o.mobile_points)
-    res.obj = backend.body_intersection([o.obj for o in objects])
-    return res
 
 # --- Utilities ---
 
