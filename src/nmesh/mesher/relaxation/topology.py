@@ -11,7 +11,7 @@ from scipy.spatial import Delaunay, QhullError
 
 from ...backend import RawMesh
 from ..periodic import build_periodic_groups
-from ._constants import BOUNDARY_FUZZ, STATE_MOBILE
+from ._constants import BOUNDARY_FUZZ, STATE_BOUNDARY, STATE_MOBILE
 from ._types import FloatArray
 from .geometry import FemGeometry
 
@@ -94,6 +94,51 @@ def _region_volumes(region_ids: np.ndarray, measures: FloatArray) -> list[float]
     return [totals[region] for region in order]
 
 
+def _regular_boundary_ratio(dim: int) -> float:
+    """Return the normalized volume-order ratio of an ideal regular simplex."""
+
+    if dim <= 0:
+        return 1.0
+    return ((dim + 1) ** ((dim + 1) / 2.0)) / (math.factorial(dim) * (dim ** (dim / 2.0)))
+
+
+def _simplex_volume_order_ratio(points: FloatArray, simplices: np.ndarray, dim: int) -> FloatArray:
+    """Return simplex volume divided by the local length scale raised to ``dim``."""
+
+    if len(simplices) == 0:
+        return np.empty(0, dtype=float)
+
+    centroids = np.mean(points[simplices], axis=1)
+    offsets = points[simplices] - centroids[:, None, :]
+    max_radius = np.max(np.linalg.norm(offsets, axis=2), axis=1)
+    measures = _simplex_measures(points, simplices, dim)
+    order_scale = np.maximum(max_radius, BOUNDARY_FUZZ) ** dim
+    return measures / order_scale
+
+
+def _classify_simplices_with_probes(
+    points: FloatArray,
+    simplices: np.ndarray,
+    geometry: FemGeometry,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Classify simplices using centroid and near-vertex probe points."""
+
+    if len(simplices) == 0:
+        return np.empty(0, dtype=int), np.empty(0, dtype=bool)
+
+    centroids = np.mean(points[simplices], axis=1)
+    region_ids = geometry.classify_points(centroids)
+    offsets = points[simplices] - centroids[:, None, :]
+    probes = (centroids[:, None, :] + 0.9 * offsets).reshape(-1, geometry.dim)
+    probe_regions = geometry.classify_points(probes).reshape(len(simplices), geometry.dim + 1)
+    single_region = (not geometry.mesh_exterior) and (len(set(geometry.region_ids)) <= 1)
+    if single_region:
+        consistent = (region_ids >= 0) & np.all(probe_regions == region_ids[:, None], axis=1)
+    else:
+        consistent = (region_ids >= 0) & np.all(probe_regions >= 0, axis=1)
+    return region_ids, consistent
+
+
 def _triangulate_points(points: FloatArray, dim: int, states: np.ndarray | None = None) -> np.ndarray:
     """Triangulate the point cloud, retrying with light jitter for degenerate inputs."""
 
@@ -108,7 +153,11 @@ def _triangulate_points(points: FloatArray, dim: int, states: np.ndarray | None 
         return Delaunay(points).simplices.astype(int, copy=False)
     except QhullError:
         jittered = np.array(points, copy=True)
-        movable = np.ones(len(points), dtype=bool) if states is None else states == STATE_MOBILE
+        movable = (
+            np.ones(len(points), dtype=bool)
+            if states is None
+            else np.isin(states, [STATE_MOBILE, STATE_BOUNDARY])
+        )
         if np.any(movable):
             amplitudes = np.linspace(1.0e-9, 1.0e-8, np.count_nonzero(movable))
             offsets = np.column_stack(
@@ -128,18 +177,31 @@ def assemble_raw_mesh(
     points: FloatArray,
     geometry: FemGeometry,
     periodic: list[float] | list[bool],
+    *,
+    states: np.ndarray | None = None,
+    params: dict[str, Any] | None = None,
 ) -> RawMesh:
     """Assemble a ``RawMesh`` from relaxed points and geometry classification."""
 
     coords = np.asarray(points, dtype=float)
     dim = geometry.dim
-    simplices = _triangulate_points(coords, dim)
+    simplices = _triangulate_points(coords, dim, states)
 
     if len(simplices) > 0:
-        centroids = np.mean(coords[simplices], axis=1)
-        region_ids = geometry.classify_points(centroids)
+        region_ids, probe_consistent = _classify_simplices_with_probes(coords, simplices, geometry)
         measures = _simplex_measures(coords, simplices, dim)
-        keep = (region_ids >= 0) & (measures > BOUNDARY_FUZZ)
+        boundary_mask = geometry.boundary_mask(
+            coords,
+            tolerance=max(BOUNDARY_FUZZ * 10.0, 1.0e-5),
+        )
+        all_boundary = np.all(boundary_mask[simplices], axis=1)
+        boundary_ratio = _simplex_volume_order_ratio(coords, simplices, dim)
+        normalized_ratio = boundary_ratio / max(_regular_boundary_ratio(dim), BOUNDARY_FUZZ)
+        smallest_allowed_ratio = float(
+            (params or {}).get("controller_smallest_allowed_volume_ratio", 1.0)
+        )
+        flat_boundary = all_boundary & (normalized_ratio < smallest_allowed_ratio)
+        keep = probe_consistent & (measures > BOUNDARY_FUZZ) & ~flat_boundary
         simplices = simplices[keep]
         region_ids = region_ids[keep]
         measures = measures[keep]

@@ -6,7 +6,15 @@ from typing import Any
 
 import numpy as np
 
-from ._constants import BOUNDARY_FUZZ, DEFAULT_RNG_SEED, DENSITY_EPSILON, STATE_FIXED, STATE_MOBILE, STATE_SIMPLE
+from ._constants import (
+    BOUNDARY_FUZZ,
+    DEFAULT_RNG_SEED,
+    DENSITY_EPSILON,
+    STATE_BOUNDARY,
+    STATE_FIXED,
+    STATE_MOBILE,
+    STATE_SIMPLE,
+)
 from ._types import FloatArray
 from .geometry import FemGeometry
 
@@ -120,93 +128,83 @@ def _keep_point_for_density(point: FloatArray, density_here: float, rng: np.rand
     return bool(rng.random() <= density_here)
 
 
-def _prepare_initial_points(
+def _classify_dynamic_states(geometry: FemGeometry, points: FloatArray, a0: float) -> np.ndarray:
+    """Return mobile or boundary states for the supplied movable points."""
+
+    if len(points) == 0:
+        return np.empty(0, dtype=int)
+    mask = geometry.boundary_mask(points, tolerance=max(0.05 * a0, BOUNDARY_FUZZ))
+    states = np.full(len(points), STATE_MOBILE, dtype=int)
+    states[mask] = STATE_BOUNDARY
+    return states
+
+
+def _filter_relevant_points(geometry: FemGeometry, points: FloatArray) -> FloatArray:
+    """Keep only points that belong to one of the meshed regions."""
+
+    if len(points) == 0:
+        return points
+    mask = geometry.classify_points(points) >= 0
+    return points[mask]
+
+
+def _select_generated_points(
     geometry: FemGeometry,
     a0: float,
     fixed_points: FloatArray,
     mobile_points: FloatArray,
     simply_points: FloatArray,
-    periodic: list[float] | list[bool],
     rng: np.random.Generator,
-) -> tuple[FloatArray, np.ndarray]:
-    """Prepare the initial point cloud and point-state array for relaxation."""
-
-    fixed_points, mobile_points, simply_points = _dedupe_fixed_mobile(
-        fixed_points, mobile_points, simply_points
-    )
-
-    def filter_relevant(points: FloatArray) -> FloatArray:
-        """Keep only points that belong to a meshed region."""
-
-        if len(points) == 0:
-            return points
-        mask = geometry.classify_points(points) >= 0
-        return points[mask]
-
-    fixed_points = filter_relevant(fixed_points)
-    mobile_points = filter_relevant(mobile_points)
-    simply_points = filter_relevant(simply_points)
+) -> FloatArray:
+    """Generate and thin candidate points that are not already seeded."""
 
     candidates = _grid_candidate_points(geometry, a0)
     region_ids = geometry.classify_points(candidates)
     candidates = candidates[region_ids >= 0]
+    if len(candidates) == 0:
+        return np.empty((0, geometry.dim), dtype=float)
 
-    if len(candidates) > 0:
-        candidate_keys = {_point_key(point) for point in fixed_points}
-        candidate_keys.update(_point_key(point) for point in mobile_points)
-        candidate_keys.update(_point_key(point) for point in simply_points)
+    candidate_keys = {_point_key(point) for point in fixed_points}
+    candidate_keys.update(_point_key(point) for point in mobile_points)
+    candidate_keys.update(_point_key(point) for point in simply_points)
 
-        selected_candidates: list[FloatArray] = []
-        for point in candidates:
-            key = _point_key(point)
-            if key in candidate_keys:
-                continue
-            density_here = geometry.density_at(point)
-            if not _keep_point_for_density(point, density_here, rng):
-                continue
-            selected_candidates.append(point)
-            candidate_keys.add(key)
-        generated_points = (
-            np.asarray(selected_candidates, dtype=float)
-            if selected_candidates
-            else np.empty((0, geometry.dim), dtype=float)
-        )
-    else:
-        generated_points = np.empty((0, geometry.dim), dtype=float)
+    selected_candidates: list[FloatArray] = []
+    for point in candidates:
+        key = _point_key(point)
+        if key in candidate_keys:
+            continue
+        density_here = geometry.density_at(point)
+        if not _keep_point_for_density(point, density_here, rng):
+            continue
+        selected_candidates.append(point)
+        candidate_keys.add(key)
 
-    hint_points = [
-        hint_points
-        for hint_points in geometry.piece_hints
-        if len(hint_points) > 0
-    ]
-    if hint_points:
-        hint_block = _dedupe_points(np.vstack(hint_points))
-        hint_block = filter_relevant(hint_block)
-    else:
-        hint_block = np.empty((0, geometry.dim), dtype=float)
+    if not selected_candidates:
+        return np.empty((0, geometry.dim), dtype=float)
+    return np.asarray(selected_candidates, dtype=float)
 
-    all_points = np.vstack(
-        (
-            fixed_points,
-            simply_points,
-            mobile_points,
-            hint_block,
-            generated_points,
-        )
-    )
 
-    states = np.concatenate(
-        (
-            np.full(len(fixed_points), STATE_FIXED, dtype=int),
-            np.full(len(simply_points), STATE_SIMPLE, dtype=int),
-            np.full(len(mobile_points), STATE_MOBILE, dtype=int),
-            np.full(len(hint_block), STATE_FIXED, dtype=int),
-            np.full(len(generated_points), STATE_MOBILE, dtype=int),
-        )
-    )
+def _collect_hint_points(geometry: FemGeometry) -> FloatArray:
+    """Merge, deduplicate, and filter hint points from all geometry pieces."""
+
+    hint_points = [hint_points for hint_points in geometry.piece_hints if len(hint_points) > 0]
+    if not hint_points:
+        return np.empty((0, geometry.dim), dtype=float)
+    hint_block = _dedupe_points(np.vstack(hint_points))
+    return _filter_relevant_points(geometry, hint_block)
+
+
+def _apply_periodic_fixed_states(
+    states: np.ndarray,
+    all_points: FloatArray,
+    geometry: FemGeometry,
+    periodic: list[float] | list[bool],
+    a0: float,
+) -> None:
+    """Mark points on periodic boundaries as fixed."""
 
     if len(all_points) == 0:
-        return all_points, states
+        return
 
     periodic_flags = [bool(value) for value in periodic]
     periodic_mask = np.zeros(len(all_points), dtype=bool)
@@ -222,4 +220,53 @@ def _prepare_initial_points(
         )
     states[periodic_mask] = STATE_FIXED
 
+
+def _prepare_initial_points(
+    geometry: FemGeometry,
+    a0: float,
+    fixed_points: FloatArray,
+    mobile_points: FloatArray,
+    simply_points: FloatArray,
+    periodic: list[float] | list[bool],
+    rng: np.random.Generator,
+) -> tuple[FloatArray, np.ndarray]:
+    """Prepare the initial point cloud and point-state array for relaxation."""
+
+    fixed_points, mobile_points, simply_points = _dedupe_fixed_mobile(
+        fixed_points, mobile_points, simply_points
+    )
+    fixed_points = _filter_relevant_points(geometry, fixed_points)
+    mobile_points = _filter_relevant_points(geometry, mobile_points)
+    simply_points = _filter_relevant_points(geometry, simply_points)
+    generated_points = _select_generated_points(
+        geometry,
+        a0,
+        fixed_points,
+        mobile_points,
+        simply_points,
+        rng,
+    )
+    hint_block = _collect_hint_points(geometry)
+
+    all_points = np.vstack(
+        (
+            fixed_points,
+            simply_points,
+            mobile_points,
+            hint_block,
+            generated_points,
+        )
+    )
+
+    states = np.concatenate(
+        (
+            np.full(len(fixed_points), STATE_FIXED, dtype=int),
+            np.full(len(simply_points), STATE_SIMPLE, dtype=int),
+            _classify_dynamic_states(geometry, mobile_points, a0),
+            np.full(len(hint_block), STATE_FIXED, dtype=int),
+            _classify_dynamic_states(geometry, generated_points, a0),
+        )
+    )
+
+    _apply_periodic_fixed_states(states, all_points, geometry, periodic, a0)
     return all_points, states
