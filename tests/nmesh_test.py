@@ -47,18 +47,72 @@ class TestNMesh(unittest.TestCase):
         d = nmesh.difference(b1, [b2])
         self.assertEqual(d.dim, 3)
 
-    def test_mesh_generation_stub(self):
-        """Test Mesh class initialization with stubs."""
+    def test_mesh_generation_produces_topology(self):
+        """Test Mesh class initialization now produces a populated mesh."""
         bb = [[0,0,0], [1,1,1]]
         obj = nmesh.Box([0.2,0.2,0.2], [0.8,0.8,0.8])
         
         m = nmesh.Mesh(bounding_box=bb, objects=[obj], a0=0.1)
-        self.assertEqual(str(m), "Mesh with 0 points and 0 simplices") # From stubs
-        
-        # Test properties (should return empty lists from stubs)
-        self.assertEqual(m.points, [])
-        self.assertEqual(m.simplices, [])
-        self.assertEqual(m.regions, [])
+        self.assertGreater(len(m.points), 0)
+        self.assertGreater(len(m.simplices), 0)
+        self.assertTrue(all(region == 1 for region in m.regions))
+
+    def test_periodic_mesh_generation(self):
+        """Periodic meshes should record point equivalence groups."""
+        bb = [[0.0, 0.0], [1.0, 1.0]]
+        obj = nmesh.Box([0.25, 0.25], [0.75, 0.75])
+
+        m = nmesh.Mesh(
+            bounding_box=bb,
+            objects=[obj],
+            a0=0.5,
+            periodic=[True, False],
+            mesh_bounding_box=True,
+        )
+
+        self.assertGreater(len(m.points), 0)
+        self.assertGreater(len(m.simplices), 0)
+        self.assertGreater(len(m.periodic_point_indices), 0)
+        self.assertTrue(all(len(group) >= 2 for group in m.periodic_point_indices))
+
+    def test_hint_mesh_seeds_generation(self):
+        """Hints should contribute seed points to the generated mesh."""
+        seed = nmesh.mesh_from_points_and_simplices(
+            points=[[0.2, 0.2], [0.8, 0.2], [0.5, 0.7]],
+            simplices_indices=[[0, 1, 2]],
+            simplices_regions=[3],
+        )
+
+        mesh = nmesh.Mesh(
+            bounding_box=[[0.0, 0.0], [1.0, 1.0]],
+            objects=[],
+            mesh_bounding_box=True,
+            hints=[(seed, nmesh.Box([0.1, 0.1], [0.9, 0.9]))],
+            a0=0.5,
+        )
+
+        self.assertIn([0.2, 0.2], mesh.points)
+        self.assertIn([0.8, 0.2], mesh.points)
+        self.assertIn([0.5, 0.7], mesh.points)
+
+    def test_callback_receives_mesh_info_payload(self):
+        """Callbacks should receive the legacy-style mesh_info bundle."""
+        calls = []
+
+        def callback(piece, step, mesh_info):
+            calls.append((piece, step, [entry[0] for entry in mesh_info]))
+
+        mesh = nmesh.Mesh(
+            bounding_box=[[0.0, 0.0], [1.0, 1.0]],
+            objects=[nmesh.Box([0.0, 0.0], [1.0, 1.0])],
+            a0=0.5,
+            callback=(callback, 2),
+        )
+
+        self.assertGreater(len(mesh.points), 0)
+        self.assertGreaterEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], 0)
+        self.assertEqual(calls[0][2], ["COORDS", "LINKS", "POINT-BODIES", "SIMPLICES", "SURFACES"])
 
     def test_1d_mesh_generation(self):
         """Test 1D mesh generation logic."""
