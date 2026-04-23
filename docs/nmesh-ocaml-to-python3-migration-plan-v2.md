@@ -9,12 +9,58 @@ This plan details the migration of the `nmesh` library from a hybrid Python 2 / 
 - **Public API Stability:** Keep the user-facing `nmesh` API stable unless an intentional public API break is explicitly approved.
 - **Modular Design:** Split the monolithic `nmesh.py` into maintainable sub-modules.
 - **Incremental Verification:** Mandate unit tests for every module to ensure parity with the legacy implementation.
+- **Code Quality:** Maintain readable, maintainable code following complexity guidelines.
 
 ### Modernization Rule
 - Internal contracts are allowed to change when it improves clarity, maintainability, or performance.
 - This includes file/module boundaries, private helper functions, internal callback payloads/signatures, and internal data flow.
 - Public API behavior is the compatibility boundary; internal compatibility is not required.
 - Any intentional public API break must be documented and covered by updated tests.
+
+### Dependency Rule
+- Required runtime dependencies must be treated as mandatory and imported directly.
+- Do not add optional-import fallbacks, `try/except ImportError` shims, or degraded execution paths for core packages such as `numpy`, `scipy`, `meshio`, `h5py`, `numba`, or `pymetis`.
+- If a package is required for a feature or module, installation/configuration must ensure it is present before the program is run.
+
+### Typing And Documentation Rule
+- New and migrated Python modules must include explicit type hints for public functions, methods, and non-trivial internal helpers.
+- New and migrated classes, public methods, and non-obvious helper functions must include concise docstrings describing purpose, inputs, and outputs when the behavior is not self-evident from the signature alone.
+- Migration work is not complete for a module until the implementation, tests, type hints, and baseline docstrings are all in place together.
+
+### Code Complexity Rule
+To ensure maintainability and readability, all migrated code must follow these complexity guidelines:
+
+**Function Length:**
+- Target: Functions should be <50 lines
+- Hard limit: Functions >80 lines require explicit justification and should be refactored unless performance-critical (e.g., JIT kernels)
+- Guideline: 90%+ of functions should be under 50 lines
+
+**Cyclomatic Complexity:**
+- Target: <10 branches per function (if/for/while/elif/try/except)
+- Hard limit: Functions with >15 branches must be refactored
+- Use helper functions to decompose complex logic
+
+**Nesting Depth:**
+- Target: <3 levels of nesting
+- Hard limit: 4 levels maximum
+- Deep nesting signals need for extraction or early returns
+
+**Single Responsibility:**
+- Each function should have one clear purpose
+- If a function does multiple distinct things, extract helpers
+- Function names should clearly describe their single responsibility
+
+**File Size:**
+- Target: <500 lines per module
+- Files >500 lines should be evaluated for splitting into sub-modules
+- Exception: Test files may be longer
+
+**Rationale:** These limits are based on software engineering research showing that complexity beyond these thresholds correlates with increased defect rates and maintenance difficulty. The Python 3 migration is an opportunity to improve upon the original OCaml codebase's structure.
+
+### Numerical Robustness Rule
+- Pure-Python ports may replace exact floating-point equality checks from the OCaml implementation with small documented tolerances when this improves numerical robustness.
+- Small bounded tolerances are also acceptable in boundary-projection and convergence-control code when needed to avoid jitter or false non-convergence near surfaces.
+- These divergences must be intentional, documented inline, and covered by regression tests when they affect meshing behavior.
 
 ### Low-Risk Extraction Rule
 - Prefer extracting low-coupling pieces from `nmesh.py` early, before the full meshing engine port is complete.
