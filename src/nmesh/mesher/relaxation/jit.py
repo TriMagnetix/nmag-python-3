@@ -11,7 +11,7 @@ from ...utils.constants import MIN_DIVISION_MAGNITUDE
 from ._constants import DENSITY_EPSILON, STATE_BOUNDARY, STATE_FIXED, STATE_MOBILE, STATE_SIMPLE
 
 
-@njit(cache=True)
+@njit
 def _default_relaxation_force(reduced_distance: float) -> float:
     """Return the legacy default mobile-mobile force law."""
 
@@ -20,7 +20,7 @@ def _default_relaxation_force(reduced_distance: float) -> float:
     return 1.0 - reduced_distance
 
 
-@njit(cache=True)
+@njit
 def _default_boundary_force(reduced_distance: float) -> float:
     """Return the legacy default boundary interaction force law."""
 
@@ -31,7 +31,7 @@ def _default_boundary_force(reduced_distance: float) -> float:
     return 1.0 / reduced_distance - 1.0
 
 
-@njit(cache=True)
+@njit
 def accumulate_neighbor_forces_default(
     points: np.ndarray,
     states: np.ndarray,

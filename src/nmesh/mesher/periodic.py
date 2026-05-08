@@ -1,17 +1,11 @@
-from __future__ import annotations
-
 """Helpers for building periodic-equivalence groups from mesh coordinates."""
+
+from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
 
 import numpy as np
-
-
-def _point_key(values: np.ndarray, decimals: int = 8) -> tuple[float, ...]:
-    """Return a rounded tuple key suitable for coordinate-based lookups."""
-
-    return tuple(np.round(values.astype(float, copy=False), decimals=decimals).tolist())
 
 
 def merge_periodic_groups(groups: Iterable[Iterable[int]]) -> list[list[int]]:
@@ -54,28 +48,50 @@ def build_periodic_groups(
         return []
 
     periodic_flags = [bool(value) for value in periodic_axes]
-    raw_groups: list[list[int]] = []
+    if not any(periodic_flags):
+        return []
 
-    for axis, enabled in enumerate(periodic_flags):
-        if not enabled:
+    grouped: defaultdict[tuple[tuple[str, float | int], ...], list[int]] = defaultdict(list)
+    for index, point in enumerate(points):
+        key = _periodic_equivalence_key(
+            point,
+            bbox_min,
+            bbox_max,
+            periodic_flags,
+            tolerance,
+        )
+        if key is None:
+            continue
+        grouped[key].append(int(index))
+
+    return [sorted(group) for group in grouped.values() if len(group) >= 2]
+
+
+def _periodic_equivalence_key(
+    point: np.ndarray,
+    bbox_min: np.ndarray,
+    bbox_max: np.ndarray,
+    periodic_flags: list[bool],
+    tolerance: float,
+) -> tuple[tuple[str, float | int], ...] | None:
+    """Return a canonical key for all periodic copies of one boundary point."""
+
+    key: list[tuple[str, float | int]] = []
+    touches_periodic_boundary = False
+    for axis, value in enumerate(point):
+        coord = float(value)
+        if not periodic_flags[axis]:
+            key.append(("coord", coord))
             continue
 
-        min_mask = np.isclose(points[:, axis], bbox_min[axis], atol=tolerance, rtol=0.0)
-        max_mask = np.isclose(points[:, axis], bbox_max[axis], atol=tolerance, rtol=0.0)
-        if not np.any(min_mask) or not np.any(max_mask):
-            continue
+        on_min = np.isclose(coord, bbox_min[axis], atol=tolerance, rtol=0.0)
+        on_max = np.isclose(coord, bbox_max[axis], atol=tolerance, rtol=0.0)
+        if on_min or on_max:
+            key.append(("periodic", axis))
+            touches_periodic_boundary = True
+        else:
+            key.append(("coord", coord))
 
-        other_axes = [other for other in range(points.shape[1]) if other != axis]
-        min_points = np.flatnonzero(min_mask)
-        max_points = np.flatnonzero(max_mask)
-
-        max_lookup: defaultdict[tuple[float, ...], list[int]] = defaultdict(list)
-        for index in max_points:
-            max_lookup[_point_key(points[index, other_axes])].append(int(index))
-
-        for index in min_points:
-            key = _point_key(points[index, other_axes])
-            for partner in max_lookup.get(key, []):
-                raw_groups.append([int(index), int(partner)])
-
-    return merge_periodic_groups(raw_groups)
+    if not touches_periodic_boundary:
+        return None
+    return tuple(key)

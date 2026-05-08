@@ -25,7 +25,13 @@ from ._constants import (
 from ._types import FloatArray
 from .geometry import FemGeometry
 from .jit import accumulate_neighbor_forces_default
-from .topology import _simplex_measures, _triangulate_points
+from .topology import (
+    _boundary_state_mask,
+    _classify_simplices_with_probes,
+    _simplex_measures,
+    _simplex_volume_order_ratio,
+    _triangulate_points,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +56,7 @@ class ForceParameters:
     neigh_force_scale: float
     irrel_force_scale: float
     sliver_correction: float
+    smallest_allowed_volume_ratio: float
     relaxation_weight: float
     force_fun: Any
     boundary_force_fun: Any
@@ -210,6 +217,9 @@ def _extract_force_parameters(params: dict[str, Any], step: int) -> ForceParamet
         neigh_force_scale=float(params.get("controller_neigh_force_scale", 1.0)),
         irrel_force_scale=float(params.get("controller_irrel_elem_force_scale", 1.0)),
         sliver_correction=float(params.get("controller_sliver_correction", 1.0)),
+        smallest_allowed_volume_ratio=float(
+            params.get("controller_smallest_allowed_volume_ratio", 1.0)
+        ),
         relaxation_weight=float(relaxation_weight_fun(step, settling_steps, 0.0, 1.0)),
         force_fun=params.get("relaxation_force_fun", default_relaxation_force_fun),
         boundary_force_fun=params.get("boundary_node_force_fun", default_boundary_node_force_fun),
@@ -490,14 +500,22 @@ def _compute_simplex_forces(
     ):
         return
 
-    centroid_regions = geometry.classify_points(np.mean(points[simplices], axis=1))
+    relevant_simplices = _classify_relevant_simplices(
+        points,
+        states,
+        geometry,
+        simplices,
+        simplex_measures,
+        dim,
+        config,
+    )
     suppress_corner_forces = angle_sums < _corner_force_threshold(dim)
     for simplex_index, simplex in enumerate(simplices):
         simplex_points = points[simplex]
         simplex_force = np.zeros_like(simplex_points)
         volume = float(simplex_measures[simplex_index])
-        if centroid_regions[simplex_index] >= 0 and volume > BOUNDARY_FUZZ:
-            density_here = float(np.mean(point_densities[np.asarray(simplex, dtype=int)]))
+        if relevant_simplices[simplex_index]:
+            density_here = geometry.density_at(np.mean(simplex_points, axis=0))
             simplex_force = _simplex_force_contribution(
                 simplex_points=simplex_points,
                 dim=dim,
@@ -512,15 +530,43 @@ def _compute_simplex_forces(
         elif config.irrel_force_scale > 0.0:
             center = np.mean(simplex_points, axis=0)
             for local_index, point_index in enumerate(simplex.tolist()):
-                if not _is_dynamic_state(int(states[point_index])):
+                if int(states[point_index]) != STATE_MOBILE:
                     continue
-                simplex_force[local_index] = config.irrel_force_scale * (center - simplex_points[local_index])
+                simplex_force[local_index] = (
+                    config.irrel_force_scale * (center - simplex_points[local_index])
+                )
 
         for local_index, point_index in enumerate(simplex.tolist()):
             point_id = int(point_index)
             if suppress_corner_forces[point_id]:
                 continue
             total_forces[point_id] += simplex_force[local_index]
+
+
+def _classify_relevant_simplices(
+    points: FloatArray,
+    states: np.ndarray,
+    geometry: FemGeometry,
+    simplices: np.ndarray,
+    simplex_measures: FloatArray,
+    dim: int,
+    config: ForceParameters,
+) -> np.ndarray:
+    """Return the legacy relevant-simplex mask for force calculation."""
+
+    if len(simplices) == 0:
+        return np.empty(0, dtype=bool)
+
+    region_ids, probe_consistent = _classify_simplices_with_probes(
+        points,
+        simplices,
+        geometry,
+    )
+    boundary_mask = _boundary_state_mask(points, states, geometry)
+    all_boundary = np.all(boundary_mask[simplices], axis=1)
+    boundary_ratio = _simplex_volume_order_ratio(points, simplices, dim)
+    flat_boundary = all_boundary & (boundary_ratio < config.smallest_allowed_volume_ratio)
+    return (region_ids >= 0) & probe_consistent & (simplex_measures > BOUNDARY_FUZZ) & ~flat_boundary
 
 
 def _finalize_force_summary(
@@ -555,32 +601,35 @@ def _finalize_force_summary(
         )
 
     boundary_mask = geometry.boundary_mask(points, tolerance=max(0.05 * a0, BOUNDARY_FUZZ))
-    full_angle = _full_angle(dim)
 
     for point_index, point in enumerate(points):
+        point_state = int(states[point_index])
+        density_here = float(point_densities[point_index])
+        effective_rod_length = a0 / (density_here ** (1.0 / max(dim, 1)))
+        ideal_local_volume = _sphere_volume(0.5 * effective_rod_length, dim)
+        angle = float(angle_sums[point_index])
         point_average_force[point_index] = _average_neighbor_force(
             neighbor_force_sums[point_index],
             int(neighbor_force_counts[point_index]),
+            angle,
         )
         corrected_volume = _corrected_point_volume(
             simplex_measures=simplex_measures,
             incident=incident_simplices[point_index],
-            angle=float(angle_sums[point_index]),
+            angle=angle,
             dim=dim,
-            a0=a0,
-            is_boundary=bool(boundary_mask[point_index]),
-            full_angle=full_angle,
+            state=point_state,
+            has_multiple_immobile_neighbors=_has_multiple_immobile_neighbors(
+                point_index,
+                states,
+                neighbor_map,
+            ),
+            ideal_local_volume=ideal_local_volume,
         )
-        density_here = float(point_densities[point_index])
-        point_density[point_index] = _point_density_ratio(
-            density_here=density_here,
-            corrected_volume=corrected_volume,
-            a0=a0,
-            dim=dim,
-        )
+        point_density[point_index] = ideal_local_volume / max(corrected_volume, DENSITY_EPSILON)
         point_effective_force[point_index] = _point_effective_force(
             total_force=total_forces[point_index],
-            state=int(states[point_index]),
+            state=point_state,
             geometry=geometry,
             point=point,
             is_boundary=bool(boundary_mask[point_index]),
@@ -630,24 +679,31 @@ def _make_force_summary(
     )
 
 
-def _full_angle(dim: int) -> float:
-    """Return the complete angular measure used for Voronoi-style correction."""
-
-    if dim == 1:
-        return 1.5
-    if dim == 2:
-        return 2.0 * math.pi
-    if dim == 3:
-        return 4.0 * math.pi
-    return 1.0
-
-
-def _average_neighbor_force(force_sum: float, force_count: int) -> float:
+def _average_neighbor_force(force_sum: float, force_count: int, angle: float) -> float:
     """Return the mean absolute neighbor-force magnitude for a point."""
 
+    if angle <= DENSITY_EPSILON:
+        return 1.0e4
     if force_count <= 0:
         return 0.0
     return force_sum / float(force_count)
+
+
+def _has_multiple_immobile_neighbors(
+    point_index: int,
+    states: np.ndarray,
+    neighbor_map: list[list[int]],
+) -> bool:
+    """Return whether a boundary point is trapped between multiple immobile nodes."""
+
+    if int(states[point_index]) != STATE_BOUNDARY:
+        return False
+    immobile_neighbors = sum(
+        1
+        for neighbor_index in neighbor_map[point_index]
+        if int(states[neighbor_index]) in (STATE_FIXED, STATE_SIMPLE)
+    )
+    return immobile_neighbors > 1
 
 
 def _corrected_point_volume(
@@ -656,43 +712,41 @@ def _corrected_point_volume(
     incident: list[int],
     angle: float,
     dim: int,
-    a0: float,
-    is_boundary: bool,
-    full_angle: float,
+    state: int,
+    has_multiple_immobile_neighbors: bool,
+    ideal_local_volume: float,
 ) -> float:
     """Return the local corrected control volume for one point."""
 
-    if incident:
-        local_volume = float(np.sum(simplex_measures[np.asarray(incident, dtype=int)])) / float(dim + 1)
+    if has_multiple_immobile_neighbors or angle <= DENSITY_EPSILON:
+        return 1.0e-4 * ideal_local_volume
+
+    if not incident:
+        return 1.0e-4 * ideal_local_volume
+
+    incident_measures = simplex_measures[np.asarray(incident, dtype=int)]
+    if len(incident) == 1:
+        local_volume = float(incident_measures[0]) / float(max(dim, 1))
     else:
-        local_volume = _sphere_volume(0.5 * a0, dim)
+        local_volume = float(np.sum(incident_measures)) / float(dim + 1)
 
-    if angle <= DENSITY_EPSILON:
-        return 1.0e-4 * _sphere_volume(0.5 * a0, dim)
-
-    correction = (
-        full_angle / angle
-        if dim in (1, 2, 3)
-        else max(1.0, float(dim + 1) / float(len(incident) or 1))
-    )
+    correction = _voronoi_angle_correction(dim, angle, len(incident))
     corrected_volume = local_volume * correction
-    if is_boundary:
+    if state == STATE_BOUNDARY:
         corrected_volume *= 1.2
     return corrected_volume
 
 
-def _point_density_ratio(
-    *,
-    density_here: float,
-    corrected_volume: float,
-    a0: float,
-    dim: int,
-) -> float:
-    """Return the desired-to-actual local density ratio for one point."""
+def _voronoi_angle_correction(dim: int, angle: float, incident_count: int) -> float:
+    """Return the legacy angular correction for Voronoi control volumes."""
 
-    effective_rod_length = a0 / (density_here ** (1.0 / max(dim, 1)))
-    ideal_local_volume = _sphere_volume(0.5 * effective_rod_length, dim)
-    return ideal_local_volume / max(corrected_volume, DENSITY_EPSILON)
+    if dim == 1:
+        return 1.5
+    if dim == 2:
+        return 2.0 * math.pi / angle
+    if dim == 3:
+        return 4.0 * math.pi / angle
+    return math.factorial(dim + 1) / float(max(incident_count, 1))
 
 
 def _point_effective_force(
@@ -725,12 +779,14 @@ def compute_forces(
     a0: float,
     params: dict[str, Any],
     step: int,
+    simplices: np.ndarray | None = None,
 ) -> ForceSummary:
     """Compute neighbor, shape, volume, and irrelevant-element forces."""
 
     point_count = len(points)
     dim = geometry.dim
-    simplices = _triangulate_points(points, dim, states)
+    if simplices is None:
+        simplices = _triangulate_points(points, dim, states)
     neighbor_map = _build_neighbor_map(point_count, simplices)
     config = _extract_force_parameters(params, step)
     point_densities = np.asarray([geometry.density_at(point) for point in points], dtype=float)

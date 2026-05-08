@@ -162,5 +162,5 @@ def _compile_density_function(density: str | DensityFunction | None) -> DensityF
         if expression_density is not None:
             return expression_density
         return _compile_script_density(source)
-    except Exception:
-        return lambda _point: 1.0
+    except Exception as exc:
+        raise ValueError(f"Could not compile density function: {source!r}") from exc

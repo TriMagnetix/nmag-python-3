@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
 
 from ._constants import (
     BOUNDARY_FUZZ,
-    DEFAULT_RNG_SEED,
     DENSITY_EPSILON,
     STATE_BOUNDARY,
     STATE_FIXED,
@@ -95,45 +95,129 @@ def _dedupe_fixed_mobile(
     )
 
 
-def _grid_candidate_points(geometry: FemGeometry, a0: float) -> FloatArray:
-    """Generate deterministic candidate seed points over the bounding box."""
+def _box_volume(geometry: FemGeometry) -> float:
+    """Return the volume of the meshing bounding box."""
 
-    extents = np.maximum(geometry.bbox_max - geometry.bbox_min, a0)
-    sample_points = [geometry.bbox_min, geometry.bbox_max, 0.5 * (geometry.bbox_min + geometry.bbox_max)]
-    max_density = max(geometry.density_at(point) for point in sample_points)
-    density_scale = min(max_density ** (1.0 / max(geometry.dim, 1)), 2.0)
-    step = max(a0 / density_scale, a0 * 0.5)
-
-    counts = np.maximum(np.floor(extents / step).astype(int) + 1, 2)
-    candidate_count = int(np.prod(counts))
-    if candidate_count > 15_000:
-        approximate = min(8_000, max(500, int(np.prod(extents / max(a0, DENSITY_EPSILON)) * 4)))
-        rng = np.random.default_rng(DEFAULT_RNG_SEED)
-        return rng.uniform(geometry.bbox_min, geometry.bbox_max, size=(approximate, geometry.dim))
-
-    axes = [
-        np.linspace(geometry.bbox_min[axis], geometry.bbox_max[axis], int(counts[axis]))
-        for axis in range(geometry.dim)
-    ]
-    grid = np.meshgrid(*axes, indexing="ij")
-    return np.stack(grid, axis=-1).reshape(-1, geometry.dim)
+    return float(np.prod(np.maximum(geometry.bbox_max - geometry.bbox_min, 0.0)))
 
 
-def _keep_point_for_density(point: FloatArray, density_here: float, rng: np.random.Generator) -> bool:
-    """Return whether a candidate point survives density-based thinning."""
+def _random_point_in_box(geometry: FemGeometry, rng: np.random.Generator) -> FloatArray:
+    """Sample one uniformly random point from the bounding box."""
 
-    _ = point
-    if density_here >= 1.0:
-        return True
-    return bool(rng.random() <= density_here)
+    return geometry.bbox_min + rng.random(geometry.dim) * (geometry.bbox_max - geometry.bbox_min)
+
+
+def _sampling_density(geometry: FemGeometry, point: FloatArray) -> float:
+    """Evaluate density only for points belonging to the meshed domain."""
+
+    if geometry.classify_points(np.asarray(point, dtype=float).reshape(1, -1))[0] < 0:
+        return 0.0
+    return geometry.density_at(point)
+
+
+def _estimate_density_max_and_average(
+    geometry: FemGeometry,
+    nr_probes: int,
+    rng: np.random.Generator,
+    *,
+    conservative_factor: float = 1.12,
+) -> tuple[float, float]:
+    """Estimate the legacy random-sampling max and average density values."""
+
+    if nr_probes <= 0:
+        return 0.0, 0.0
+
+    first_value = _sampling_density(geometry, _random_point_in_box(geometry, rng))
+    max_seen = first_value
+    # The legacy estimator intentionally seeded the max with the first probe
+    # while leaving it out of the average accumulator.
+    density_sum = 0.0
+    for _ in range(1, nr_probes):
+        value = _sampling_density(geometry, _random_point_in_box(geometry, rng))
+        max_seen = max(max_seen, value)
+        density_sum += value
+    return max_seen * conservative_factor, density_sum / float(nr_probes)
+
+
+def _sphere_volume(dim: int) -> float:
+    """Return the d-dimensional unit sphere volume."""
+
+    return (math.pi ** (0.5 * dim)) / math.gamma(1.0 + 0.5 * dim)
+
+
+def _sphere_packing_ratio_lattice_type_d(dim: int) -> float:
+    """Return the D-lattice sphere-packing ratio used by the legacy seeder."""
+
+    if dim <= 1:
+        return 1.0
+
+    lattice_vectors = np.zeros((dim, dim), dtype=float)
+    for row in range(dim):
+        if row == dim - 1:
+            lattice_vectors[row, max(dim - 2, 0) :] = 1.0
+        else:
+            lattice_vectors[row, row] = 1.0
+            lattice_vectors[row, row + 1] = -1.0
+
+    lattice_cell_volume = abs(float(np.linalg.det(lattice_vectors)))
+    if lattice_cell_volume <= DENSITY_EPSILON:
+        return 1.0
+    sphere_radius = 0.5 * math.sqrt(2.0)
+    sphere_volume = (sphere_radius**dim) * _sphere_volume(dim)
+    return sphere_volume / lattice_cell_volume
+
+
+def _estimate_initial_point_count(
+    geometry: FemGeometry,
+    a0: float,
+    fixed_points: FloatArray,
+    average_density: float,
+) -> int:
+    """Estimate the number of random initial nodes using the OCaml formula."""
+
+    _ = fixed_points
+    node_volume = (
+        _sphere_volume(geometry.dim)
+        * ((a0 * 0.5 * 0.7) ** geometry.dim)
+        / max(_sphere_packing_ratio_lattice_type_d(geometry.dim), DENSITY_EPSILON)
+    )
+    estimated_integrated_density = average_density * _box_volume(geometry)
+    estimated_nodes = estimated_integrated_density / max(node_volume, DENSITY_EPSILON)
+    return min(10_000, max(geometry.dim + 1 + 5, int(estimated_nodes)))
+
+
+def _distribute_points_randomly(
+    geometry: FemGeometry,
+    nr_points: int,
+    max_density: float,
+    rng: np.random.Generator,
+) -> FloatArray:
+    """Draw initial points with rejection sampling against the density field."""
+
+    if nr_points <= 0 or max_density <= DENSITY_EPSILON:
+        return np.empty((0, geometry.dim), dtype=float)
+
+    # OCaml's Array.make evaluates the initial random point once before the
+    # rejection loop; keep the same RNG consumption for deterministic parity.
+    _ = _random_point_in_box(geometry, rng)
+    result = np.empty((nr_points, geometry.dim), dtype=float)
+    accepted = 0
+    while accepted < nr_points:
+        point = _random_point_in_box(geometry, rng)
+        if rng.random() * max_density > _sampling_density(geometry, point):
+            continue
+        result[accepted] = point
+        accepted += 1
+    return result
 
 
 def _classify_dynamic_states(geometry: FemGeometry, points: FloatArray, a0: float) -> np.ndarray:
     """Return mobile or boundary states for the supplied movable points."""
 
+    _ = a0
     if len(points) == 0:
         return np.empty(0, dtype=int)
-    mask = geometry.boundary_mask(points, tolerance=max(0.05 * a0, BOUNDARY_FUZZ))
+    mask = geometry.boundary_mask(points, tolerance=BOUNDARY_FUZZ)
     states = np.full(len(points), STATE_MOBILE, dtype=int)
     states[mask] = STATE_BOUNDARY
     return states
@@ -155,12 +239,14 @@ def _select_generated_points(
     mobile_points: FloatArray,
     simply_points: FloatArray,
     rng: np.random.Generator,
+    params: dict[str, Any],
 ) -> FloatArray:
-    """Generate and thin candidate points that are not already seeded."""
+    """Generate density-weighted random seed points like the legacy mesher."""
 
-    candidates = _grid_candidate_points(geometry, a0)
-    region_ids = geometry.classify_points(candidates)
-    candidates = candidates[region_ids >= 0]
+    nr_probes = int(params.get("nr_probes_for_determining_volume", 100_000))
+    max_density, average_density = _estimate_density_max_and_average(geometry, nr_probes, rng)
+    nr_points = _estimate_initial_point_count(geometry, a0, fixed_points, average_density)
+    candidates = _distribute_points_randomly(geometry, nr_points, max_density, rng)
     if len(candidates) == 0:
         return np.empty((0, geometry.dim), dtype=float)
 
@@ -173,8 +259,7 @@ def _select_generated_points(
         key = _point_key(point)
         if key in candidate_keys:
             continue
-        density_here = geometry.density_at(point)
-        if not _keep_point_for_density(point, density_here, rng):
+        if geometry.classify_points(np.asarray(point, dtype=float).reshape(1, -1))[0] < 0:
             continue
         selected_candidates.append(point)
         candidate_keys.add(key)
@@ -194,6 +279,48 @@ def _collect_hint_points(geometry: FemGeometry) -> FloatArray:
     return _filter_relevant_points(geometry, hint_block)
 
 
+def _periodic_outer_box_points(
+    geometry: FemGeometry,
+    a0: float,
+    periodic: list[float] | list[bool],
+) -> FloatArray:
+    """Create paired fixed seed points on periodic outer-box faces."""
+
+    periodic_flags = [bool(value) for value in periodic]
+    if not any(periodic_flags):
+        return np.empty((0, geometry.dim), dtype=float)
+
+    points: list[FloatArray] = []
+    spacing = max(a0, DENSITY_EPSILON)
+    for periodic_axis, enabled in enumerate(periodic_flags):
+        if not enabled:
+            continue
+
+        other_axes = [axis for axis in range(geometry.dim) if axis != periodic_axis]
+        face_axes: list[FloatArray] = []
+        for axis in other_axes:
+            extent = float(geometry.bbox_max[axis] - geometry.bbox_min[axis])
+            count = max(2, int(math.floor(extent / spacing)) + 1)
+            face_axes.append(np.linspace(geometry.bbox_min[axis], geometry.bbox_max[axis], count))
+
+        coordinate_rows = (
+            np.zeros((1, 0), dtype=float)
+            if not other_axes
+            else np.array(np.meshgrid(*face_axes, indexing="ij")).T.reshape(-1, len(other_axes))
+        )
+        for coordinates in coordinate_rows:
+            for side in (geometry.bbox_min[periodic_axis], geometry.bbox_max[periodic_axis]):
+                point = np.zeros(geometry.dim, dtype=float)
+                point[periodic_axis] = side
+                for axis, value in zip(other_axes, coordinates):
+                    point[axis] = value
+                points.append(point)
+
+    if not points:
+        return np.empty((0, geometry.dim), dtype=float)
+    return _filter_relevant_points(geometry, _dedupe_points(np.asarray(points, dtype=float)))
+
+
 def _apply_periodic_fixed_states(
     states: np.ndarray,
     all_points: FloatArray,
@@ -208,7 +335,8 @@ def _apply_periodic_fixed_states(
 
     periodic_flags = [bool(value) for value in periodic]
     periodic_mask = np.zeros(len(all_points), dtype=bool)
-    tolerance = max(0.05 * a0, BOUNDARY_FUZZ)
+    _ = a0
+    tolerance = BOUNDARY_FUZZ
     for axis, enabled in enumerate(periodic_flags):
         if not enabled:
             continue
@@ -229,15 +357,23 @@ def _prepare_initial_points(
     simply_points: FloatArray,
     periodic: list[float] | list[bool],
     rng: np.random.Generator,
+    params: dict[str, Any] | None = None,
 ) -> tuple[FloatArray, np.ndarray]:
     """Prepare the initial point cloud and point-state array for relaxation."""
 
+    params = {} if params is None else params
     fixed_points, mobile_points, simply_points = _dedupe_fixed_mobile(
         fixed_points, mobile_points, simply_points
     )
     fixed_points = _filter_relevant_points(geometry, fixed_points)
     mobile_points = _filter_relevant_points(geometry, mobile_points)
     simply_points = _filter_relevant_points(geometry, simply_points)
+
+    if len(simply_points) > 0:
+        states = np.full(len(simply_points), STATE_SIMPLE, dtype=int)
+        _apply_periodic_fixed_states(states, simply_points, geometry, periodic, a0)
+        return simply_points, states
+
     generated_points = _select_generated_points(
         geometry,
         a0,
@@ -245,8 +381,10 @@ def _prepare_initial_points(
         mobile_points,
         simply_points,
         rng,
-    )
+        params,
+    ) if len(mobile_points) == 0 else np.empty((0, geometry.dim), dtype=float)
     hint_block = _collect_hint_points(geometry)
+    periodic_block = _periodic_outer_box_points(geometry, a0, periodic)
 
     all_points = np.vstack(
         (
@@ -254,6 +392,7 @@ def _prepare_initial_points(
             simply_points,
             mobile_points,
             hint_block,
+            periodic_block,
             generated_points,
         )
     )
@@ -264,6 +403,7 @@ def _prepare_initial_points(
             np.full(len(simply_points), STATE_SIMPLE, dtype=int),
             _classify_dynamic_states(geometry, mobile_points, a0),
             np.full(len(hint_block), STATE_FIXED, dtype=int),
+            np.full(len(periodic_block), STATE_FIXED, dtype=int),
             _classify_dynamic_states(geometry, generated_points, a0),
         )
     )

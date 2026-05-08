@@ -173,6 +173,24 @@ def _triangulate_points(points: FloatArray, dim: int, states: np.ndarray | None 
             return np.empty((0, dim + 1), dtype=int)
 
 
+def _orient_simplices_positive(points: FloatArray, simplices: np.ndarray, dim: int) -> np.ndarray:
+    """Return simplices ordered with positive legacy simplex orientation."""
+
+    if dim <= 1 or len(simplices) == 0:
+        return simplices
+
+    oriented = np.array(simplices, copy=True)
+    matrices = points[oriented[:, 1:]] - points[oriented[:, [0]]]
+    determinants = np.linalg.det(matrices)
+    negative = np.flatnonzero(determinants < 0.0)
+    if len(negative) > 0:
+        oriented[negative, 0], oriented[negative, 1] = (
+            oriented[negative, 1].copy(),
+            oriented[negative, 0].copy(),
+        )
+    return oriented
+
+
 def assemble_raw_mesh(
     points: FloatArray,
     geometry: FemGeometry,
@@ -186,21 +204,22 @@ def assemble_raw_mesh(
     coords = np.asarray(points, dtype=float)
     dim = geometry.dim
     simplices = _triangulate_points(coords, dim, states)
+    simplices = _orient_simplices_positive(coords, simplices, dim)
 
     if len(simplices) > 0:
         region_ids, probe_consistent = _classify_simplices_with_probes(coords, simplices, geometry)
         measures = _simplex_measures(coords, simplices, dim)
-        boundary_mask = geometry.boundary_mask(
+        boundary_mask = _boundary_state_mask(
             coords,
-            tolerance=max(BOUNDARY_FUZZ * 10.0, 1.0e-5),
+            states,
+            geometry,
         )
         all_boundary = np.all(boundary_mask[simplices], axis=1)
         boundary_ratio = _simplex_volume_order_ratio(coords, simplices, dim)
-        normalized_ratio = boundary_ratio / max(_regular_boundary_ratio(dim), BOUNDARY_FUZZ)
         smallest_allowed_ratio = float(
             (params or {}).get("controller_smallest_allowed_volume_ratio", 1.0)
         )
-        flat_boundary = all_boundary & (normalized_ratio < smallest_allowed_ratio)
+        flat_boundary = all_boundary & (boundary_ratio < smallest_allowed_ratio)
         keep = probe_consistent & (measures > BOUNDARY_FUZZ) & ~flat_boundary
         simplices = simplices[keep]
         region_ids = region_ids[keep]
@@ -232,6 +251,21 @@ def assemble_raw_mesh(
         periodic_point_indices=periodic_groups,
         permutation=list(range(len(coords))),
         dim=dim,
+    )
+
+
+def _boundary_state_mask(
+    coords: FloatArray,
+    states: np.ndarray | None,
+    geometry: FemGeometry,
+) -> np.ndarray:
+    """Return the point mask used for legacy flat-boundary simplex rejection."""
+
+    if states is not None and len(states) == len(coords):
+        return np.asarray(states, dtype=int) == STATE_BOUNDARY
+    return geometry.boundary_mask(
+        coords,
+        tolerance=max(BOUNDARY_FUZZ * 10.0, 1.0e-5),
     )
 
 

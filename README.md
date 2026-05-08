@@ -2,6 +2,8 @@
 
 This is an in-progress port of [nmag](https://github.com/nmag-project/nmag-src) that updates old dependencies and packages nmag as a standalone python 3 module.
 
+The Python 3 port is intended to be standalone and must not require OCaml at runtime. See [PARITY_COMPLETION.md](PARITY_COMPLETION.md) for the Section 4 parity record and validation gate.
+
 ### Installation
 * Create a virtual environment: `python -m venv venv`
 * Activate the virtual environment:
@@ -12,13 +14,7 @@ This is an in-progress port of [nmag](https://github.com/nmag-project/nmag-src) 
 ### Testing
 * To install the optional test dependencies run `pip install -e ".[test]"`
 * Once the project has been initialized simply run `pytest` to run your tests
+* To generate modern nmesh parity scenario outputs run `python tools/nmesh_parity_compare.py --output-dir parity/new`
+* To compare against legacy `.nmesh` artifacts run `python tools/nmesh_parity_compare.py --legacy-dir parity/legacy`
 * To view coverage open `htmlcov/index.html` in your browser
 * [Specifying what tests to run](https://docs.pytest.org/en/latest/how-to/usage.html#specifying-which-tests-to-run)
-
-### OCaml
-* Install latest Ocaml/Opam version 4 https://ocaml.org/install
-  * Recommended to run `opam init` and setup a switch with version 4
-* Install ocaml-in-python `opam install ocaml-in-python`
-* Register the package in python ``pip install --editable "`opam var ocaml-in-python:lib`"``
-* Tell python where to look for the OCaml library `export OCAMLPATH=${DUNE_DIR}/_build/install/default/lib` where DUNE_DIR is the directory of the dune project
-* Run this to explictly activate the Opam switch `eval $(opam env)`

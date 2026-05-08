@@ -144,6 +144,69 @@ class FemGeometry:
 
         return best_normal
 
+    def boundary_gradient(self, point: FloatArray, body: Body) -> FloatArray:
+        """Estimate the gradient of one implicit body at a point."""
+
+        coord = np.asarray(point, dtype=float)
+        gradient = np.zeros(self.dim, dtype=float)
+        extent = max(float(np.max(self.bbox_max - self.bbox_min)), 1.0)
+        epsilon = max(BOUNDARY_FUZZ * 10.0, extent * 1.0e-6)
+        for axis in range(self.dim):
+            offset = np.zeros(self.dim, dtype=float)
+            offset[axis] = epsilon
+            forward = float(body.evaluate(coord + offset))
+            backward = float(body.evaluate(coord - offset))
+            gradient[axis] = (forward - backward) / (2.0 * epsilon)
+        return gradient
+
+    def project_point_to_boundary_from_inside(
+        self,
+        point: FloatArray,
+        *,
+        acceptable_fuzz: float,
+        max_steps: int,
+    ) -> FloatArray:
+        """Project an interior point onto implicit boundaries using the legacy correction."""
+
+        coords = np.asarray(point, dtype=float).copy()
+        bodies = [body for body in self.region_bodies if body is not None]
+        if not bodies:
+            return self._project_point_to_box_boundary(coords)
+
+        for _ in range(max(max_steps, 0)):
+            violated_body: Body | None = None
+            violated_value = 0.0
+            for body in bodies:
+                value = float(body.evaluate(coords))
+                if value > acceptable_fuzz:
+                    violated_body = body
+                    violated_value = value
+                    break
+
+            if violated_body is None:
+                return coords
+
+            gradient = self.boundary_gradient(coords, violated_body)
+            gradient_norm_sq = float(np.dot(gradient, gradient))
+            scale = 1.0e-6 if gradient_norm_sq <= DENSITY_EPSILON else -violated_value / gradient_norm_sq
+            coords = coords + scale * gradient
+
+        return coords
+
+    def _project_point_to_box_boundary(self, point: FloatArray) -> FloatArray:
+        """Project a point to the nearest bounding-box face."""
+
+        coords = np.asarray(point, dtype=float).copy()
+        distances_min = np.abs(coords - self.bbox_min)
+        distances_max = np.abs(coords - self.bbox_max)
+        min_axis = int(np.argmin(distances_min))
+        max_axis = int(np.argmin(distances_max))
+        if distances_min[min_axis] <= distances_max[max_axis]:
+            coords[min_axis] = self.bbox_min[min_axis]
+        else:
+            coords[max_axis] = self.bbox_max[max_axis]
+        return coords
+
     def project_segment_to_domain(
         self,
         start: FloatArray,

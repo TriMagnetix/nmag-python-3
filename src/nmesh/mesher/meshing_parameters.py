@@ -341,6 +341,9 @@ class MeshingParameters(MockFeatures):
                 continue
             resolved[spec.internal_name] = spec.cast(value)
 
+        for key, value in self._params.items():
+            resolved.setdefault(key, value)
+
         return resolved
 
     def apply_to_mesher(self, mesher, dim):
@@ -353,6 +356,9 @@ class MeshingParameters(MockFeatures):
             if value is None:
                 continue
             mesher["parameters"][spec.internal_name] = spec.cast(value)
+
+        for key, value in self._params.items():
+            mesher["parameters"].setdefault(key, value)
 
         return mesher
 

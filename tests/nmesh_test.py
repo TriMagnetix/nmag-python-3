@@ -52,7 +52,13 @@ class TestNMesh(unittest.TestCase):
         bb = [[0,0,0], [1,1,1]]
         obj = nmesh.Box([0.2,0.2,0.2], [0.8,0.8,0.8])
         
-        m = nmesh.Mesh(bounding_box=bb, objects=[obj], a0=0.1)
+        m = nmesh.Mesh(
+            bounding_box=bb,
+            objects=[obj],
+            a0=0.3,
+            max_steps=20,
+            nr_probes_for_determining_volume=500,
+        )
         self.assertGreater(len(m.points), 0)
         self.assertGreater(len(m.simplices), 0)
         self.assertTrue(all(region == 1 for region in m.regions))
@@ -68,6 +74,8 @@ class TestNMesh(unittest.TestCase):
             a0=0.5,
             periodic=[True, False],
             mesh_bounding_box=True,
+            max_steps=20,
+            nr_probes_for_determining_volume=500,
         )
 
         self.assertGreater(len(m.points), 0)
@@ -89,6 +97,8 @@ class TestNMesh(unittest.TestCase):
             mesh_bounding_box=True,
             hints=[(seed, nmesh.Box([0.1, 0.1], [0.9, 0.9]))],
             a0=0.5,
+            max_steps=20,
+            nr_probes_for_determining_volume=500,
         )
 
         self.assertIn([0.2, 0.2], mesh.points)
@@ -107,6 +117,8 @@ class TestNMesh(unittest.TestCase):
             objects=[nmesh.Box([0.0, 0.0], [1.0, 1.0])],
             a0=0.5,
             callback=(callback, 2),
+            max_steps=20,
+            nr_probes_for_determining_volume=500,
         )
 
         self.assertGreater(len(mesh.points), 0)
