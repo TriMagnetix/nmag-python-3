@@ -7,7 +7,7 @@ from typing import Any
 
 from mock_features import MockFeatures
 
-from ..utils.constants import MIN_DIVISION_MAGNITUDE
+from ..utils.constants import BOUNDARY_FUZZ, MIN_DIVISION_MAGNITUDE
 
 log = logging.getLogger(__name__)
 
@@ -248,7 +248,7 @@ class MeshingParameters(MockFeatures):
             # Volume determination
             "nr_probes_for_determining_volume": 100000,
             # Boundary condition parameters
-            "boundary_condition_acceptable_fuzz": 1e-6,
+            "boundary_condition_acceptable_fuzz": BOUNDARY_FUZZ,
             "boundary_condition_max_nr_correction_steps": 200,
             "boundary_condition_debuglevel": 0,
             # Relaxation parameters
@@ -341,6 +341,9 @@ class MeshingParameters(MockFeatures):
                 continue
             resolved[spec.internal_name] = spec.cast(value)
 
+        for key, value in self._params.items():
+            resolved.setdefault(key, value)
+
         return resolved
 
     def apply_to_mesher(self, mesher, dim):
@@ -353,6 +356,9 @@ class MeshingParameters(MockFeatures):
             if value is None:
                 continue
             mesher["parameters"][spec.internal_name] = spec.cast(value)
+
+        for key, value in self._params.items():
+            mesher["parameters"].setdefault(key, value)
 
         return mesher
 

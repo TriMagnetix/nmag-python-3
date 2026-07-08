@@ -7,12 +7,7 @@ import numpy as np
 
 from ..backend import RawMesh
 from .legacy_nmesh_hdf5 import load_raw_mesh_from_legacy_nmesh_hdf5
-
-try:
-    from meshio._exceptions import ReadError as MeshioReadError
-except ImportError:
-    # Fallback for older meshio versions
-    MeshioReadError = Exception
+from meshio._exceptions import ReadError as MeshioReadError
 
 
 _CELL_TYPE_BY_DIM = {
