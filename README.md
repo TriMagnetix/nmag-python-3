@@ -208,44 +208,16 @@ affine operator and is incompatible with low-memory mode.
 
 ## Supported Scope
 
-The current public workflow supports:
+Nmag-python-3 supports 3D tetrahedral, isotropic micromagnetic workflows:
+legacy and modern mesh loading, demagnetization, exchange, uniform applied
+fields, pinning, Zhang-Li current torque, adaptive dynamics and relaxation,
+native checkpoints, and NDT/HDF5 output. The optional Rust accelerator runs
+the same supported model as the Python paths.
 
-- loading ASCII `.nmesh` and legacy `.nmesh.h5` tetrahedral meshes;
-- loading modern simplex mesh files through `meshio`, including VTU, Gmsh, and
-  XDMF formats;
-- one or more material regions;
-- uniform or position-dependent normalized magnetization through `set_m`;
-- uniform external fields through `set_H_ext`;
-- scalar, nodal, or position-dependent pinning through `set_pinning`;
-- material-specific exchange and LLG coefficients for regions whose nodes do
-  not require conflicting material-specific magnetization degrees of freedom;
-- uniform, nodal, or position-dependent current-density (Zhang-Li)
-  spin-transfer torque through `set_current_density`;
-- static demagnetization, exchange, external, total fields, and derived energy
-  quantities used by the MVP;
-- adaptive LLG time integration and convergence-based relaxation for supported
-  isotropic material configurations;
-- native HDF5 restart checkpoints for compatible loaded simulations;
-- NDT/HDF5 output, field averages, and point probes;
-- optional Python, NumPy/Numba, SciPy, and shared-memory Rust calculation
-  backends.
-
-Important current limitations:
-
-- HLib and custom `phi_BEM` support are not implemented;
-- material-specific `set_m` subfields are not implemented;
-- thermal dynamics, dynamic anisotropy, Slonczewski spin-transfer torque, and
-  the complete multi-stage hysteresis API are not implemented;
-- a geometric node shared by regions with different exchange, LLG, or STT
-  coefficients requires material-specific magnetization degrees of freedom
-  and is rejected explicitly;
-- the low-memory BEM path has linear storage but still performs every boundary
-  node/face interaction, so very large boundaries can take substantial time;
-- the experimental Diffsol backend remains dense and is not available in
-  low-memory mode.
-
-Unsupported requests raise `NotImplementedError` or a specific configuration
-error rather than silently falling back to legacy behavior.
+The main gaps are anisotropy, thermal and Slonczewski physics, periodic/HLib
+demag, shared-node material-specific magnetization and local coupling, and
+full legacy hysteresis compatibility. The low-memory demag path avoids dense
+boundary storage but can still be slow on very large meshes.
 
 ## Mesh Formats
 
