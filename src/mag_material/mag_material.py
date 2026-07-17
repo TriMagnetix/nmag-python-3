@@ -5,14 +5,41 @@ etc.)
 """
 
 import logging
+from typing import Any, Protocol, cast
 
-from si.physical import SI
-from si import constants
 from anisotropy import PredefinedAnisotropy
+from si.physical import SI
 
-log = logging.getLogger('nmag')
+from .parameters import (
+    AnisotropyFunction,
+    MaterialScalar,
+    resolve_material_parameters,
+)
 
-class MagMaterial(object):
+log = logging.getLogger("nmag")
+
+
+class _SIConstants(Protocol):
+    boltzmann_constant: SI
+    gamma0: SI
+    mu0: SI
+    bohr_magneton: SI
+    positron_charge: SI
+
+
+_constants_cache: _SIConstants | None = None
+
+
+def _si_constants() -> _SIConstants:
+    global _constants_cache
+    if _constants_cache is None:
+        from si import constants
+
+        _constants_cache = cast(_SIConstants, constants)
+    return _constants_cache
+
+
+class MagMaterial:
     """
     Represents a magnetic material, defining its physical properties such as
     saturation magnetisation, exchange coupling, and LLG parameters.
@@ -21,21 +48,22 @@ class MagMaterial(object):
     dimensional correctness.
     """
 
-    def __init__(self,
-                 name,
-                 Ms=SI(0.86e6 * constants.Ampere / constants.meter),
-                 llg_damping=0.5,
-                 llg_gamma_G=SI(2.210173e5 * constants.meter / (constants.Ampere * constants.second)),
-                 llg_normalisationfactor=SI(0.1e12 * 1 / constants.second),
-                 llg_xi=0.0,
-                 llg_polarisation=0.0,
-                 do_precession=True,
-                 exchange_coupling=SI(1.3e-11 * constants.Joule / constants.meter),
-                 anisotropy=None,
-                 anisotropy_order=None,
-                 properties=["magnetic", "material"],
-                 scale_volume_charges=1.0
-                 ):
+    def __init__(
+        self,
+        name: str,
+        Ms: SI | None = None,
+        llg_damping: MaterialScalar = 0.5,
+        llg_gamma_G: SI | None = None,
+        llg_normalisationfactor: SI | None = None,
+        llg_xi: MaterialScalar = 0.0,
+        llg_polarisation: MaterialScalar = 0.0,
+        do_precession: bool = True,
+        exchange_coupling: SI | None = None,
+        anisotropy: PredefinedAnisotropy | AnisotropyFunction | None = None,
+        anisotropy_order: int | None = None,
+        properties: list[str] | None = None,
+        scale_volume_charges: float = 1.0,
+    ) -> None:
         """
         Initializes a magnetic material with its physical properties.
 
@@ -82,121 +110,147 @@ class MagMaterial(object):
           `scale_volume_charges` : float
             A debugging parameter for developers.
         """
-        self.name = name
-        self.Ms = Ms
-        self.llg_gamma_G = llg_gamma_G
-        self.llg_damping = llg_damping
-        self.llg_normalisationfactor = llg_normalisationfactor
-        self.llg_xi = llg_xi
-        self.llg_polarisation = llg_polarisation
-        self.do_precession = do_precession
-        self.properties = properties
-        self.exchange_coupling = exchange_coupling
-        self.scale_volume_charges = scale_volume_charges
-
-        # --- Unit validation ---
-        one = SI(1)
-        expected_units = (
-            ("Ms", SI(constants.Ampere / constants.meter)),
-            ("llg_gamma_G", SI(constants.meter / (constants.Ampere * constants.second))),
-            ("llg_damping", one),
-            ("llg_normalisationfactor", SI(1 / constants.second)),
-            ("llg_xi", one),
-            ("llg_polarisation", one),
-            ("exchange_coupling", SI(constants.Joule / constants.meter))
+        parameters = resolve_material_parameters(
+            name,
+            ms=Ms,
+            damping=llg_damping,
+            gamma=llg_gamma_G,
+            normalisation=llg_normalisationfactor,
+            xi=llg_xi,
+            polarisation=llg_polarisation,
+            do_precession=do_precession,
+            exchange=exchange_coupling,
+            anisotropy=anisotropy,
+            anisotropy_order=anisotropy_order,
+            properties=properties,
+            scale_volume_charges=scale_volume_charges,
         )
 
-        for attr_name, expected_unit in expected_units:
-            value = getattr(self, attr_name)
-            
-            # The value could be an SI object or a raw number (e.g., float)
-            # Check compatibility between its quantities and raw numbers
-            if isinstance(value, SI):
-                value_to_check = value._quantity
-            else:
-                value_to_check = value # It's a raw number/
+        self.name = name
+        self.Ms = parameters.ms
+        self.llg_gamma_G = parameters.gamma
+        self.llg_damping = parameters.damping
+        self.llg_normalisationfactor = parameters.normalisation
+        self.llg_xi = parameters.xi
+        self.llg_polarisation = parameters.polarisation
+        self.do_precession = parameters.do_precession
+        self.properties = parameters.properties
+        self.exchange_coupling = parameters.exchange
+        self.scale_volume_charges = parameters.scale_volume_charges
+        self.anisotropy = parameters.anisotropy
+        self.anisotropy_order = parameters.anisotropy_order
 
-            if not expected_unit._quantity.is_compatible_with(value_to_check):
-                raise TypeError(
-                    f"The argument '{attr_name}' for material '{self.name}' "
-                    f"requires units compatible with {expected_unit.dens_str()}, "
-                    f"but received a value of '{value}'."
-                )
-            
-        # Check for physically valid exchange coupling
-        if self.exchange_coupling < 0.0:
-            raise ValueError(
-                f"The exchange coupling constant must be positive. For "
-                f"material '{self.name}', you specified: {self.exchange_coupling}."
-            )
-
-        # TODO: Revisit anisotropy handling, do we really need both of these statements?
-        # --- Anisotropy Handling ---
-        if isinstance(anisotropy, PredefinedAnisotropy):
-            if anisotropy_order:
-                raise ValueError(
-                    "Cannot specify custom 'anisotropy_order' when using "
-                    "a predefined anisotropy."
-                )
-            # In a real implementation, you might extract properties here.
-            # For now, we just store the object.
-            self.anisotropy = anisotropy
-            self.anisotropy_order = anisotropy.order
-        else:
-            if anisotropy and not anisotropy_order:
-                raise ValueError(
-                    "You must specify 'anisotropy_order' when using a "
-                    "custom anisotropy function."
-                )
-            self.anisotropy = anisotropy
-            self.anisotropy_order = anisotropy_order
-
-        # SU units units for backwards compatibility, they used to be stripped 
+        # SU units units for backwards compatibility, they used to be stripped
         # of units, but now we can do calculations with the units attached
         self.su_Ms = self.Ms
         self.su_llg_gamma_G = self.llg_gamma_G
         self.su_llg_damping = self.llg_damping
         self.su_llg_normalisationfactor = self.llg_normalisationfactor
-        self.su_exchange_coupling = self.exchange_coupling 
+        self.su_exchange_coupling = self.exchange_coupling
 
-        self.thermal_factor = (2.0 * constants.boltzmann_constant * self.llg_damping) / \
-                              (-constants.gamma0 * constants.mu0 * self.Ms)  
-        self.su_thermal_factor = self.thermal_factor
-
-        gilbert_to_ll = 1.0 / (1.0 + self.su_llg_damping ** 2)
+        gilbert_to_ll = 1.0 / (1.0 + self.su_llg_damping**2)
         self.su_llg_coeff1 = -self.su_llg_gamma_G * gilbert_to_ll
         self.su_llg_coeff2 = self.su_llg_coeff1 * self.su_llg_damping
-        su_f = -gilbert_to_ll * (llg_polarisation * constants.bohr_magneton / (constants.positron_charge * self.Ms * (1 + llg_xi ** 2)))
-        if su_f == 0.0:
-            self.su_llg_stt_prefactor = 0.0
-        else:
-            self.su_llg_stt_prefactor = 1.0
 
-        self.su_llg_stt_nadiab = su_f * (self.llg_xi - self.su_llg_damping)
-        self.su_llg_stt_adiab = su_f * (1.0 + self.llg_damping * self.llg_xi)
-
-        if self.do_precession == False:
-            log.info ("Setting su_llg_coeff1 to zero; thus no precession for material '%s'" % self.name)
+        if not self.do_precession:
+            log.info(
+                "Setting su_llg_coeff1 to zero; thus no precession for material '%s'", self.name
+            )
             self.su_llg_coeff1 = 0.0
 
-        self.su_exch_prefactor = 2.0 * self.su_exchange_coupling / (constants.mu0 * self.su_Ms)
-
         self.su_anisotropy = self.anisotropy
-            
-        self.extended_print = False
-        log.info(f"Created new Material:\n {self}")
+        self._derived_su_constants: dict[str, MaterialScalar] | None = None
 
-    def __str__(self):
+        self.extended_print = False
+        if log.isEnabledFor(logging.INFO):
+            log.info("Created new Material:\n %s", self)
+
+    def _derived_su_values(self) -> dict[str, MaterialScalar]:
+        if self._derived_su_constants is None:
+            constants = _si_constants()
+            thermal_factor = (2.0 * constants.boltzmann_constant * self.llg_damping) / (
+                -constants.gamma0 * constants.mu0 * self.Ms
+            )
+            gilbert_to_ll = 1.0 / (1.0 + self.su_llg_damping**2)
+            polarisation = (
+                self.llg_polarisation.in_units_of(SI(1))
+                if isinstance(self.llg_polarisation, SI)
+                else float(self.llg_polarisation)
+            )
+            xi = self.llg_xi.in_units_of(SI(1)) if isinstance(self.llg_xi, SI) else float(self.llg_xi)
+            bohr_magneton = float(
+                cast(Any, 1.0 * constants.bohr_magneton).to("J/T").magnitude
+            )
+            charge = float(cast(Any, 1.0 * constants.positron_charge).to("C").magnitude)
+            ms = self.Ms.in_units_of(SI("A/m"))
+            su_f = (
+                SI(0.0, "m^3/A/s")
+                if ms == 0.0
+                else SI(
+                    -gilbert_to_ll
+                    * polarisation
+                    * bohr_magneton
+                    / (charge * ms * (1.0 + xi * xi)),
+                    "m^3/A/s",
+                )
+            )
+            self._derived_su_constants = {
+                "thermal_factor": thermal_factor,
+                "su_thermal_factor": thermal_factor,
+                "su_llg_stt_prefactor": 0.0 if su_f == 0.0 else 1.0,
+                "su_llg_stt_nadiab": su_f * (xi - self.su_llg_damping),
+                "su_llg_stt_adiab": su_f * (1.0 + self.su_llg_damping * xi),
+                "su_exch_prefactor": (
+                    2.0 * self.su_exchange_coupling / (constants.mu0 * self.su_Ms)
+                ),
+            }
+        return self._derived_su_constants
+
+    @property
+    def thermal_factor(self) -> MaterialScalar:
+        return self._derived_su_values()["thermal_factor"]
+
+    @property
+    def su_thermal_factor(self) -> MaterialScalar:
+        return self._derived_su_values()["su_thermal_factor"]
+
+    @property
+    def su_llg_stt_prefactor(self) -> MaterialScalar:
+        return self._derived_su_values()["su_llg_stt_prefactor"]
+
+    @property
+    def su_llg_stt_nadiab(self) -> MaterialScalar:
+        return self._derived_su_values()["su_llg_stt_nadiab"]
+
+    @property
+    def su_llg_stt_adiab(self) -> MaterialScalar:
+        return self._derived_su_values()["su_llg_stt_adiab"]
+
+    @property
+    def su_exch_prefactor(self) -> MaterialScalar:
+        return self._derived_su_values()["su_exch_prefactor"]
+
+    def __str__(self) -> str:
         repr_str = f"Material '{self.name}'\n"
-        
-        attrs = list(filter(lambda a: a[0] != '_', dir(self)))
-        
+
+        attrs = list(filter(lambda a: a[0] != "_", dir(self)))
+
         if not self.extended_print:
-            attrs = ['name', 'Ms', 'exchange_coupling', 'anisotropy',
-                     'anisotropy_order', 'llg_gamma_G', 'llg_damping',
-                     'llg_normalisationfactor', 'do_precession',
-                     'llg_polarisation', 'llg_xi', 'thermal_factor',
-                     'extended_print']
+            attrs = [
+                "name",
+                "Ms",
+                "exchange_coupling",
+                "anisotropy",
+                "anisotropy_order",
+                "llg_gamma_G",
+                "llg_damping",
+                "llg_normalisationfactor",
+                "do_precession",
+                "llg_polarisation",
+                "llg_xi",
+                "thermal_factor",
+                "extended_print",
+            ]
 
         for attr in attrs:
             if hasattr(self, attr):

@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import itertools
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Callable, Literal, TypeAlias
+from typing import Literal, TypeAlias
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -24,11 +24,11 @@ from numpy.typing import ArrayLike
 from ..utils.types import BoolArray, FloatArray
 from .transform import (
     AffineTransform,
+    _as_vector,
     inverse_axis_rotation,
     inverse_plane_rotation,
     inverse_scale,
     inverse_shift,
-    _as_vector,
 )
 
 SignedField: TypeAlias = Callable[[FloatArray], FloatArray]
@@ -38,15 +38,12 @@ RotateTransform: TypeAlias = tuple[Literal["rotate"], tuple[int, int], float]
 Rotate2DTransform: TypeAlias = tuple[Literal["rotate2d"], float]
 Rotate3DTransform: TypeAlias = tuple[Literal["rotate3d"], ArrayLike, float]
 TransformationStep: TypeAlias = (
-    ShiftTransform
-    | ScaleTransform
-    | RotateTransform
-    | Rotate2DTransform
-    | Rotate3DTransform
+    ShiftTransform | ScaleTransform | RotateTransform | Rotate2DTransform | Rotate3DTransform
 )
 
 # Number of complete spiral rotations for the helix primitive (4 turns = 8π)
 _HELIX_SPIRAL_TURNS = 4.0
+
 
 def _as_float_points(points: Sequence[Sequence[float]] | None) -> list[list[float]]:
     return [list(map(float, point)) for point in (points or [])]
@@ -57,7 +54,7 @@ def _coerce_query_points(points: ArrayLike, dim: int) -> tuple[FloatArray, bool]
     if coords.ndim == 1:
         if len(coords) != dim:
             raise ValueError(f"Expected a point of length {dim}, got {len(coords)}")
-        return coords.reshape(1, dim).astype(np.float64, copy=False), True
+        return coords[np.newaxis, :].astype(np.float64, copy=False), True
     if coords.ndim == 2 and coords.shape[1] == dim:
         return coords.astype(np.float64, copy=False), False
     raise ValueError(f"Expected points with shape ({dim},) or (N, {dim}), got {coords.shape}")
@@ -76,7 +73,7 @@ class Body:
 
         coords, scalar = _coerce_query_points(points, self.dim)
         local_coords = self.transform.apply(coords)
-        values = np.asarray(self.evaluator(local_coords), dtype=float).reshape(-1)
+        values = np.asarray(self.evaluator(local_coords), dtype=float).flatten()
         if scalar:
             return float(values[0])
         return values.astype(np.float64, copy=False)
@@ -86,7 +83,7 @@ class Body:
         inverse_transform: AffineTransform,
         *,
         system_coords: bool,
-    ) -> "Body":
+    ) -> Body:
         """Return a copy of the body with one more affine transform applied.
 
         Args:
@@ -235,9 +232,7 @@ def bc_helix(
             ),
         )
         alpha = 2.0 * math.pi * _HELIX_SPIRAL_TURNS * axis_factor
-        spiral_direction = np.column_stack(
-            (np.cos(alpha), np.sin(alpha), np.zeros_like(alpha))
-        )
+        spiral_direction = np.column_stack((np.cos(alpha), np.sin(alpha), np.zeros_like(alpha)))
         helix_circle_radius = radius2 * (1.0 - axis_factor)
         helix_spiral_radius = radius1 * (1.0 - axis_factor)
         axis_projection = point1 + np.outer(axis_factor, axis)
@@ -261,7 +256,7 @@ class MeshObject:
         mobile: Sequence[Sequence[float]] | None = None,
         *,
         body: Body | None = None,
-    ):
+    ) -> None:
         self.dim = int(dim)
         self.fixed_points = _as_float_points(fixed)
         self.mobile_points = _as_float_points(mobile)
@@ -285,21 +280,21 @@ class MeshObject:
             return values > 0.0
         return values > 0.0
 
-    def shift(self, vector: ArrayLike, system_coords: bool = True):
+    def shift(self, vector: ArrayLike, system_coords: bool = True) -> None:
         """Translate the object by the given vector."""
 
         body = self._require_body()
         inverse_transform = inverse_shift(_as_vector(vector, dim=self.dim))
         self.obj = body.transformed(inverse_transform, system_coords=system_coords)
 
-    def scale(self, factors: ArrayLike):
+    def scale(self, factors: ArrayLike) -> None:
         """Scale the object in body coordinates by the supplied per-axis factors."""
 
         body = self._require_body()
         inverse_transform = inverse_scale(_as_vector(factors, dim=self.dim))
         self.obj = body.transformed(inverse_transform, system_coords=False)
 
-    def rotate(self, a1: int, a2: int, angle: float, system_coords: bool = True):
+    def rotate(self, a1: int, a2: int, angle: float, system_coords: bool = True) -> None:
         """Rotate the object in the plane spanned by the two axis indices."""
 
         body = self._require_body()
@@ -307,7 +302,7 @@ class MeshObject:
         inverse_transform = inverse_plane_rotation(self.dim, int(a1), int(a2), radians)
         self.obj = body.transformed(inverse_transform, system_coords=system_coords)
 
-    def rotate_3d(self, axis: ArrayLike, angle: float, system_coords: bool = True):
+    def rotate_3d(self, axis: ArrayLike, angle: float, system_coords: bool = True) -> None:
         """Rotate a three-dimensional object about the supplied axis vector."""
 
         body = self._require_body()
@@ -352,13 +347,13 @@ class Box(MeshObject):
         mobile: Sequence[Sequence[float]] | None = None,
         system_coords: bool = True,
         use_fixed_corners: bool = False,
-    ):
+    ) -> None:
         point1 = _as_vector(p1)
         point2 = _as_vector(p2, dim=len(point1))
         fixed_points = _as_float_points(fixed)
         if use_fixed_corners:
             fixed_points.extend(
-                [list(corner) for corner in itertools.product(*zip(point1, point2))]
+                [list(corner) for corner in itertools.product(*zip(point1, point2, strict=True))]
             )
         body = _make_body(len(point1), bc_box(point1, point2))
         super().__init__(len(point1), fixed_points, mobile, body=body)
@@ -375,7 +370,7 @@ class Ellipsoid(MeshObject):
         fixed: Sequence[Sequence[float]] | None = None,
         mobile: Sequence[Sequence[float]] | None = None,
         system_coords: bool = True,
-    ):
+    ) -> None:
         radii = _as_vector(lengths)
         body = _make_body(len(radii), bc_ellipsoid(radii))
         super().__init__(len(radii), fixed, mobile, body=body)
@@ -395,7 +390,7 @@ class Conic(MeshObject):
         fixed: Sequence[Sequence[float]] | None = None,
         mobile: Sequence[Sequence[float]] | None = None,
         system_coords: bool = True,
-    ):
+    ) -> None:
         point1 = _as_vector(c1)
         point2 = _as_vector(c2, dim=len(point1))
         body = _make_body(
@@ -419,7 +414,7 @@ class Helix(MeshObject):
         fixed: Sequence[Sequence[float]] | None = None,
         mobile: Sequence[Sequence[float]] | None = None,
         system_coords: bool = True,
-    ):
+    ) -> None:
         point1 = _as_vector(c1, dim=3)
         point2 = _as_vector(c2, dim=3)
         body = _make_body(

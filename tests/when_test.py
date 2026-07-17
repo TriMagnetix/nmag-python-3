@@ -1,6 +1,8 @@
 import unittest
-from when import at, every, never, TimeDict
 from typing import Any
+
+from si.physical import SI
+from when import TimeDict, at, every, never
 
 # --- Unit Tests (unittest.TestCase format) ---
 
@@ -44,7 +46,7 @@ class TestTimeSpec(unittest.TestCase):
 
     def test_every(self):
         w = every('step', 10)
-        
+
         self.time['step'] = 0
         self.assertTrue(w.match_time(self.time))
         self.assertEqual(w.next_time('step', self.time), 10)
@@ -56,7 +58,7 @@ class TestTimeSpec(unittest.TestCase):
         self.time['step'] = 10
         self.assertTrue(w.match_time(self.time))
         self.assertEqual(w.next_time('step', self.time), 20)
-        
+
         self.time['step'] = 11
         self.assertFalse(w.match_time(self.time))
         self.assertEqual(w.next_time('step', self.time), 20)
@@ -91,11 +93,11 @@ class TestTimeSpec(unittest.TestCase):
 
     def test_every_no_delta(self):
         w = every('step', first=5, last=10)
-        
+
         self.time['step'] = 4
         self.assertFalse(w.match_time(self.time))
         self.assertIs(w.next_time('step', self.time), True)
-        
+
         self.time['step'] = 5
         self.assertTrue(w.match_time(self.time))
         self.assertIs(w.next_time('step', self.time), True)
@@ -111,13 +113,13 @@ class TestTimeSpec(unittest.TestCase):
     def test_every_validation(self):
         with self.assertRaisesRegex(ValueError, "delta must be positive"):
             every('step', 0)
-        
+
         with self.assertRaisesRegex(ValueError, "delta must be positive"):
             every('step', -1)
 
         with self.assertRaisesRegex(ValueError, "'last' must be greater than 'first'"):
             every('step', 10, first=10, last=10)
-            
+
         with self.assertRaisesRegex(ValueError, "must specify an identifier"):
             every(10, 20)
 
@@ -126,14 +128,14 @@ class TestTimeSpec(unittest.TestCase):
         self.time['step'] = 0
         self.assertFalse(w.match_time(self.time))
         self.assertIs(w.next_time('step', self.time), False)
-        
+
         self.time['step'] = 100
         self.assertFalse(w.match_time(self.time))
         self.assertIs(w.next_time('step', self.time), False)
 
     def test_or(self):
         w = at('step', 5) | at('step', 10)
-        
+
         self.time['step'] = 0
         self.assertFalse(w.match_time(self.time))
         self.assertEqual(w.next_time('step', self.time), 5)
@@ -174,13 +176,13 @@ class TestTimeSpec(unittest.TestCase):
     def test_repr(self):
         w1 = at('convergence')
         self.assertEqual(str(w1), "at('convergence', True)")
-        
+
         w2 = every('step', 10, first=1, last=100)
         self.assertEqual(str(w2), "every(10, 'step', first=1, last=100)")
-        
+
         w3 = w1 | w2
         self.assertEqual(str(w3), "(at('convergence', True) | every(10, 'step', first=1, last=100))")
-        
+
         w4 = w1 & w2
         self.assertEqual(str(w4), "(at('convergence', True) & every(10, 'step', first=1, last=100))")
 
@@ -190,28 +192,28 @@ class TestTimeSpec(unittest.TestCase):
     def test_tols(self):
         w = every('step', 10)
         tols = {'step': 0.01}
-        
+
         # Standard case, no tol
         self.time['step'] = 0
         self.assertEqual(w.next_time('step', self.time), 10)
-        
+
         # Standard case, with tol
         self.assertEqual(w.next_time('step', self.time, tols), 10)
-        
+
         # Current time is very close to next event.
         # Without tol, it should return 10.
         self.time['step'] = 9.999
         self.assertEqual(w.next_time('step', self.time), 10)
-        
+
         # With tol, it should detect it's too close and skip to
         # the *next* event after that.
         # abs(10.0 - 9.999) = 0.001 < 0.01
         self.assertEqual(w.next_time('step', self.time, tols), 20.0)
-        
+
         # Current time is slightly *after* an event
         self.time['step'] = 10.001
         self.assertEqual(w.next_time('step', self.time), 20.0)
-        
+
         # With tol, result is the same
         self.assertEqual(w.next_time('step', self.time, tols), 20.0)
 
@@ -222,19 +224,19 @@ class TestTimeSpec(unittest.TestCase):
         Replicates the 'step' test from the original __main__ block.
         """
         w = every('step', 2, last=21) & every('step', 4, first=10) | at('step', 15)
-        
+
         results = []
         this: Any = 0
-        
+
         for _ in range(25): # Safety break
             self.time['step'] = this
             next_t = w.next_time('step', self.time)
             results.append((this, next_t))
-            
+
             if next_t is False:
                 break
             this = next_t
-            
+
         expected_sequence = [
             (0, 10),
             (10, 14),
@@ -242,7 +244,7 @@ class TestTimeSpec(unittest.TestCase):
             (15, 18),
             (18, False)
         ]
-        
+
         self.assertEqual(results, expected_sequence)
 
     def test_time_or_loop(self):
@@ -251,15 +253,15 @@ class TestTimeSpec(unittest.TestCase):
         Uses floats to check float logic.
         """
         w = every('time', 100.0) | every('time', 30.0)
-        
+
         results = []
         this: Any = 0.0
-        
+
         for _ in range(10):
             self.time['time'] = this
             next_t = w.next_time('time', self.time, tols={'time': 1e-9})
             results.append((this, next_t))
-            
+
             if next_t is False:
                 break
             this = next_t
@@ -276,8 +278,24 @@ class TestTimeSpec(unittest.TestCase):
             (200.0, 210.0),
             (210.0, 240.0)
         ]
-        
+
         self.assertEqual(results, expected_sequence)
+
+    def test_every_accepts_si_time_intervals(self):
+        interval = SI(10.0, "ps")
+        self.time['stage_time'] = SI(0.0, "s")
+        schedule = every('stage_time', interval)
+        tolerances = {'stage_time': SI(1e-20, 's')}
+
+        self.assertEqual(
+            schedule.next_time('stage_time', self.time, tols=tolerances),
+            interval,
+        )
+        self.time['stage_time'] = interval
+        self.assertEqual(
+            schedule.next_time('stage_time', self.time, tols=tolerances),
+            2 * interval,
+        )
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,11 +1,13 @@
 import time
-from typing import Hashable
+from collections.abc import Hashable
 
 """
 This replaces the reporttools.py from the original nmag repo.
 https://github.com/nmag-project/nmag-src/blob/master/interface/nsim/reporttools.py.
 It is converted into a class to avoid global variables and uses monotonic time instead.
 """
+
+
 class Throttler:
     """
     Manages state to allow actions at most every N seconds per key.
@@ -15,7 +17,8 @@ class Throttler:
             a unique key to the timestamp (from time.monotonic())
             of its last allowed call.
     """
-    def __init__(self):
+
+    def __init__(self) -> None:
         """Initializes the throttle state."""
         # Stores the time of the last successful call for each key
         self.last_called: dict[Hashable, float] = {}

@@ -1,22 +1,25 @@
 import unittest
+
 import numpy as np
 
 # Import the classes and functions to be tested
 from anisotropy import (
     PredefinedAnisotropy,
-    uniaxial_anisotropy,
     cubic_anisotropy,
+    uniaxial_anisotropy,
     want_anisotropy,
 )
+
 # Import the hidden helper function for normalization directly since it isn't exposed in the init file
 from anisotropy.anisotropy import _normalize
+
 
 class TestAnisotropy(unittest.TestCase):
     """Unit tests for the anisotropy definitions and helper functions."""
 
     ## Test Helper Functions
     # --------------------------------------------------------------------------
-    
+
     def testnormalize(self):
         """Tests the vector normalization helper function."""
         v = [1, 2, 3]
@@ -48,7 +51,7 @@ class TestAnisotropy(unittest.TestCase):
 
     ## Test PredefinedAnisotropy Class
     # --------------------------------------------------------------------------
-    
+
     def test_predefined_anisotropy_init(self):
         """Tests the constructor of the PredefinedAnisotropy class."""
         # Test successful creation with a function and order
@@ -77,7 +80,8 @@ class TestAnisotropy(unittest.TestCase):
         self.assertEqual(repr(a), 'PredefinedAnisotropy(anis_type="test", ?)')
 
         # Test with a custom stringifier
-        stringifier = lambda x: f"order={x.order}"
+        def stringifier(x):
+            return f"order={x.order}"
         b = PredefinedAnisotropy(anis_type="test", order=2, stringifier=stringifier)
         self.assertEqual(str(b), "<PredefinedAnisotropy:test, order=2>")
         self.assertEqual(repr(b), 'PredefinedAnisotropy(anis_type="test", order=2)')
@@ -107,7 +111,7 @@ class TestAnisotropy(unittest.TestCase):
         sub_res = a2 - a1
         self.assertEqual(sub_res.order, 4)  # Order should be max(4, 2)
         self.assertAlmostEqual(sub_res.function(m_vec), np.dot(m_vec, m_vec))
-        
+
         # Test that operations with invalid types raise TypeError
         with self.assertRaises(TypeError):
             _ = a1 + 5
@@ -170,7 +174,7 @@ class TestAnisotropy(unittest.TestCase):
         # Expected energy: K1 * (a1^2*a2^2) + K3 * (a1^2*a2^2)^2
         # E = K1 * (0.5*0.5) + K3 * (0.5*0.5)^2 = K1/4 + K3/16
         self.assertAlmostEqual(anis.function(m_face_diag), K1/4 + K3/16)
-        
+
         # Test energy when magnetization is along a space diagonal [111]
         m_space_diag = _normalize([1, 1, 1])
         # a1=a2=a3 = 1/sqrt(3), so a_i^2 = 1/3

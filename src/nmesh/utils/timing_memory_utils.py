@@ -5,9 +5,10 @@ import time
 
 log = logging.getLogger(__name__)
 
-_time_zero = None
+_time_zero: float | None = None
 
-def time_passed():
+
+def time_passed() -> float:
     """Returns elapsed time since the first call to this function."""
     global _time_zero
     if _time_zero is None:
@@ -15,7 +16,8 @@ def time_passed():
         return 0.0
     return time.time() - _time_zero
 
-def memstats(self_status_file="/proc/self/status"):
+
+def memstats(self_status_file: str = "/proc/self/status") -> list[float]:
     """Reads VmSize and VmRSS from /proc/self/status (Linux)."""
     vmsize_vmrss = [0.0, 0.0]
     if not os.path.exists(self_status_file):
@@ -24,7 +26,7 @@ def memstats(self_status_file="/proc/self/status"):
     # Matches "VmSize: 1234 kB" or "VmRSS: 5678 KB".
     re_pattern = re.compile(r"^(VmSize|VmRSS):\s+(\d+)\s+[kK][bB]", re.MULTILINE)
     try:
-        with open(self_status_file, "r") as fd:
+        with open(self_status_file) as fd:
             content = fd.read()
             found = 0
             for match in re_pattern.finditer(content):
@@ -41,7 +43,8 @@ def memstats(self_status_file="/proc/self/status"):
         log.debug(f"Failed to read memstats: {e}")
     return vmsize_vmrss
 
-def time_vmem_rss():
+
+def time_vmem_rss() -> tuple[float, float, float]:
     """Returns (elapsed_time, vmem, rss) where memory is in KB."""
     t = time_passed()
     mem = memstats()

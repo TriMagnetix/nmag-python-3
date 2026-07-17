@@ -35,7 +35,7 @@ class AffineTransform:
     displacement: FloatArray
 
     @classmethod
-    def identity(cls, dim: int) -> "AffineTransform":
+    def identity(cls, dim: int) -> AffineTransform:
         """Return the identity transform for a space of the given dimension."""
 
         return cls(np.eye(dim, dtype=float), np.zeros(dim, dtype=float))
@@ -49,12 +49,11 @@ class AffineTransform:
 
         pts = np.asarray(points, dtype=float)
         if pts.ndim != 2 or pts.shape[1] != self.dim:
-            raise ValueError(
-                f"Expected points with shape (N, {self.dim}), got {pts.shape}"
-            )
-        return ((self.matrix @ pts.T).T + self.displacement).astype(np.float64, copy=False)
+            raise ValueError(f"Expected points with shape (N, {self.dim}), got {pts.shape}")
+        transformed = np.matmul(pts, np.transpose(self.matrix)) + self.displacement
+        return np.asarray(transformed, dtype=np.float64)
 
-    def compose(self, other: "AffineTransform") -> "AffineTransform":
+    def compose(self, other: AffineTransform) -> AffineTransform:
         """Return the transform equivalent to applying `other` then `self`."""
 
         if self.dim != other.dim:
@@ -78,10 +77,12 @@ def inverse_scale(factors: ArrayLike) -> AffineTransform:
     scale = _as_vector(factors)
     if np.any(np.abs(scale) < MIN_ABS_SCALE_FACTOR):
         raise ValueError(
-            "Scale factors must be non-zero "
-            f"(absolute value >= {MIN_ABS_SCALE_FACTOR})"
+            f"Scale factors must be non-zero (absolute value >= {MIN_ABS_SCALE_FACTOR})"
         )
-    return AffineTransform(np.diag(1.0 / scale), np.zeros(len(scale), dtype=float))
+    matrix = np.zeros((len(scale), len(scale)), dtype=np.float64)
+    for index, value in enumerate(scale):
+        matrix[index, index] = 1.0 / value
+    return AffineTransform(matrix, np.zeros(len(scale), dtype=float))
 
 
 def inverse_plane_rotation(dim: int, axis1: int, axis2: int, radians: float) -> AffineTransform:

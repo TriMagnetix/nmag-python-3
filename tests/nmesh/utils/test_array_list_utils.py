@@ -1,14 +1,15 @@
 import unittest
 
 import numpy as np
-import pytest
+
 import nmesh.utils.array_list_utils as array_utils
 
 
 class TestArrayListUtils(unittest.TestCase):
     def test_array_filter(self):
         arr = [1, 2, 3, 4, 5]
-        p = lambda x: x % 2 == 0
+        def p(x):
+            return x % 2 == 0
         expected = [2, 4]
         np.testing.assert_array_equal(array_utils.array_filter(p, arr), expected)
 
@@ -20,7 +21,8 @@ class TestArrayListUtils(unittest.TestCase):
 
     def test_array_position_if(self):
         arr = [1, 3, 5, 8, 10]
-        p = lambda x: x % 2 == 0
+        def p(x):
+            return x % 2 == 0
         self.assertEqual(array_utils.array_position_if(p, arr), 3)
         self.assertEqual(array_utils.array_position_if(p, arr, start=4), 4)
 
@@ -53,13 +55,15 @@ class TestArrayListUtils(unittest.TestCase):
 
     def test_array_filter_empty_result(self):
         arr = [1, 3, 5, 7]
-        p = lambda x: x % 2 == 0  # No even numbers
+        def p(x):
+            return x % 2 == 0  # No even numbers
         result = array_utils.array_filter(p, arr)
         self.assertEqual(len(result), 0)
 
     def test_array_filter_all_match(self):
         arr = [2, 4, 6, 8]
-        p = lambda x: x % 2 == 0  # All even
+        def p(x):
+            return x % 2 == 0  # All even
         result = array_utils.array_filter(p, arr)
         np.testing.assert_array_equal(result, arr)
 
@@ -73,12 +77,14 @@ class TestArrayListUtils(unittest.TestCase):
 
     def test_array_position_if_not_found(self):
         arr = [1, 3, 5, 7]
-        p = lambda x: x % 2 == 0  # No even numbers
+        def p(x):
+            return x % 2 == 0  # No even numbers
         self.assertEqual(array_utils.array_position_if(p, arr), -1)
 
     def test_array_position_if_at_boundary(self):
         arr = [1, 2, 3, 4, 5]
-        p = lambda x: x == 5
+        def p(x):
+            return x == 5
         self.assertEqual(array_utils.array_position_if(p, arr), 4)
 
     def test_array_one_shorter_first_element(self):

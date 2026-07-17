@@ -1,12 +1,21 @@
-'''
+"""
 This file contains the definition of the PredefinedAnisotropy class
 and some useful functions for defining the magnetic anisotropy
 of a magnetic material.
-'''
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
 
 import numpy as np
+from numpy.typing import ArrayLike, NDArray
 
-def _normalize(v):
+EnergyFunction = Callable[[ArrayLike], float]
+AnisotropyStringifier = Callable[["PredefinedAnisotropy"], str]
+
+
+def _normalize(v: ArrayLike) -> NDArray[np.float64]:
     """Helper function to normalize a NumPy vector, handling the zero vector case."""
     v = np.asarray(v, dtype=float)
     norm = np.linalg.norm(v)
@@ -14,7 +23,8 @@ def _normalize(v):
         raise ValueError("Cannot normalize a zero vector.")
     return v / norm
 
-def want_anisotropy(x, want_function=True):
+
+def want_anisotropy(x: object, want_function: bool = True) -> None:
     """
     Checks if x is a valid PredefinedAnisotropy object.
 
@@ -30,15 +40,25 @@ def want_anisotropy(x, want_function=True):
         # Use ValueError for correct type but invalid state
         raise ValueError("Cannot operate on an anisotropy object that lacks an energy function.")
 
+
 class PredefinedAnisotropy:
     """
     Contains an anisotropy energy function and its approximation order.
     """
-    def __init__(self, function=None, order=None,
-                 anis_type="functional",
-                 axis1=None, axis2=None, axis3=None,
-                 K1=None, K2=None, K3=None,
-                 stringifier=None):
+
+    def __init__(
+        self,
+        function: EnergyFunction | None = None,
+        order: int | None = None,
+        anis_type: str = "functional",
+        axis1: ArrayLike | None = None,
+        axis2: ArrayLike | None = None,
+        axis3: ArrayLike | None = None,
+        K1: float | None = None,
+        K2: float | None = None,
+        K3: float | None = None,
+        stringifier: AnisotropyStringifier | None = None,
+    ) -> None:
         if function is None and order is None:
             # Use ValueError for invalid argument values
             raise ValueError("PredefinedAnisotropy requires either a 'function' or an 'order'.")
@@ -54,44 +74,77 @@ class PredefinedAnisotropy:
         self.axis3 = np.asarray(axis3) if axis3 is not None else None
         self._str_extra = stringifier
 
-    def has_function(self):
+    def has_function(self) -> bool:
         """Returns True if the anisotropy has an energy function."""
         return self.function is not None
 
-    def __str__(self):
+    def __str__(self) -> str:
         s = self.anis_type
         if self._str_extra:
             s += f", {self._str_extra(self)}"
         return f"<PredefinedAnisotropy:{s}>"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         s = self._str_extra(self) if self._str_extra else "?"
         return f'PredefinedAnisotropy(anis_type="{self.anis_type}", {s})'
 
-    def __neg__(self):
+    def __neg__(self) -> PredefinedAnisotropy:
         """Unary operator -"""
-        neg_function = lambda m: -self.function(m)
+        want_anisotropy(self)
+        function = self.function
+        assert function is not None
+
+        def neg_function(m: ArrayLike) -> float:
+            return -float(function(m))
+
         return PredefinedAnisotropy(neg_function, self.order)
 
-    def __pos__(self):
+    def __pos__(self) -> PredefinedAnisotropy:
         """Unary operator +"""
         return self
 
-    def __add__(self, y):
+    def __add__(self, y: object) -> PredefinedAnisotropy:
         """Addition operator"""
+        want_anisotropy(self)
         want_anisotropy(y)
-        f = lambda m: self.function(m) + y.function(m)
-        o = max(self.order, y.order)
+        assert isinstance(y, PredefinedAnisotropy)
+        left_function = self.function
+        right_function = y.function
+        left_order = self.order
+        right_order = y.order
+        assert left_function is not None and right_function is not None
+        assert left_order is not None and right_order is not None
+
+        def f(m: ArrayLike) -> float:
+            return float(left_function(m) + right_function(m))
+
+        o = max(left_order, right_order)
         return PredefinedAnisotropy(f, o)
 
-    def __sub__(self, y):
+    def __sub__(self, y: object) -> PredefinedAnisotropy:
         """Subtraction operator"""
+        want_anisotropy(self)
         want_anisotropy(y)
-        f = lambda m: self.function(m) - y.function(m)
-        o = max(self.order, y.order)
+        assert isinstance(y, PredefinedAnisotropy)
+        left_function = self.function
+        right_function = y.function
+        left_order = self.order
+        right_order = y.order
+        assert left_function is not None and right_function is not None
+        assert left_order is not None and right_order is not None
+
+        def f(m: ArrayLike) -> float:
+            return float(left_function(m) - right_function(m))
+
+        o = max(left_order, right_order)
         return PredefinedAnisotropy(f, o)
 
-def uniaxial_anisotropy(axis, K1, K2=0):
+
+def uniaxial_anisotropy(
+    axis: ArrayLike,
+    K1: float,
+    K2: float = 0.0,
+) -> PredefinedAnisotropy:
     """
     Returns a predefined anisotropy for a uniaxial energy density term:
         E_anis = - K1 * <axis, m>^2 - K2 * <axis, m>^4
@@ -106,26 +159,38 @@ def uniaxial_anisotropy(axis, K1, K2=0):
     axis = _normalize(axis)
 
     # Build the anisotropy function using NumPy's dot product
-    def f(m):
+    def f(m: ArrayLike) -> float:
         m = np.asarray(m, dtype=float)
         a = np.dot(axis, m)
-        return -K1 * a**2 - K2 * a**4
+        return float(-K1 * a**2 - K2 * a**4)
 
     order = 4 if K2 else 2
 
-    def stringifier(a):
+    def stringifier(a: PredefinedAnisotropy) -> str:
+        assert a.axis1 is not None
         s = f"axis={list(a.axis1)}, K1={a.K1}"
         if a.K2 != 0.0:
             s += f", K2={a.K2}"
         return s
 
-    return PredefinedAnisotropy(anis_type="uniaxial",
-                                function=f, order=order,
-                                axis1=axis, K1=K1, K2=K2,
-                                stringifier=stringifier)
+    return PredefinedAnisotropy(
+        anis_type="uniaxial",
+        function=f,
+        order=order,
+        axis1=axis,
+        K1=K1,
+        K2=K2,
+        stringifier=stringifier,
+    )
 
 
-def cubic_anisotropy(axis1, axis2, K1, K2=0, K3=0):
+def cubic_anisotropy(
+    axis1: ArrayLike,
+    axis2: ArrayLike,
+    K1: float,
+    K2: float = 0.0,
+    K3: float = 0.0,
+) -> PredefinedAnisotropy:
     """
     Returns a predefined anisotropy for a cubic energy density term:
         E_anis = K1 * (<axis1,m>^2 <axis2,m>^2 + <axis1,m>^2 <axis3,m>^2 + <axis2,m>^2 <axis3,m>^2)
@@ -146,27 +211,28 @@ def cubic_anisotropy(axis1, axis2, K1, K2=0, K3=0):
 
     # Build an orthonormal system using NumPy
     a3 = np.cross(a1, a2)
-    a2 = np.cross(a3, a1) # Ensure a2 is orthogonal to a1 and a3
-    
+    a2 = np.cross(a3, a1)  # Ensure a2 is orthogonal to a1 and a3
+
     # Normalize all axes
     axis1 = _normalize(a1)
     axis2 = _normalize(a2)
     axis3 = _normalize(a3)
 
     # Build anisotropy function using NumPy
-    def f(m):
+    def f(m: ArrayLike) -> float:
         m = np.asarray(m, dtype=float)
         a1_dot_m = np.dot(axis1, m)
         a2_dot_m = np.dot(axis2, m)
         a3_dot_m = np.dot(axis3, m)
 
-        term1 = (a1_dot_m*a2_dot_m)**2 + (a1_dot_m*a3_dot_m)**2 + (a2_dot_m*a3_dot_m)**2
-        term2 = (a1_dot_m*a2_dot_m*a3_dot_m)**2
-        term3 = (a1_dot_m*a2_dot_m)**4 + (a1_dot_m*a3_dot_m)**4 + (a2_dot_m*a3_dot_m)**4
+        term1 = (a1_dot_m * a2_dot_m) ** 2 + (a1_dot_m * a3_dot_m) ** 2 + (a2_dot_m * a3_dot_m) ** 2
+        term2 = (a1_dot_m * a2_dot_m * a3_dot_m) ** 2
+        term3 = (a1_dot_m * a2_dot_m) ** 4 + (a1_dot_m * a3_dot_m) ** 4 + (a2_dot_m * a3_dot_m) ** 4
 
-        return K1*term1 + K2*term2 + K3*term3
+        return float(K1 * term1 + K2 * term2 + K3 * term3)
 
-    def stringifier(a):
+    def stringifier(a: PredefinedAnisotropy) -> str:
+        assert a.axis1 is not None and a.axis2 is not None
         s = f"axis1={list(a.axis1)}, axis2={list(a.axis2)}, K1={a.K1}"
         if a.K2 != 0.0:
             s += f", K2={a.K2}"
@@ -181,8 +247,15 @@ def cubic_anisotropy(axis1, axis2, K1, K2=0, K3=0):
     else:
         order = 4
 
-    return PredefinedAnisotropy(anis_type="cubic",
-                                function=f, order=order,
-                                axis1=axis1, axis2=axis2, axis3=axis3,
-                                K1=K1, K2=K2, K3=K3,
-                                stringifier=stringifier)
+    return PredefinedAnisotropy(
+        anis_type="cubic",
+        function=f,
+        order=order,
+        axis1=axis1,
+        axis2=axis2,
+        axis3=axis3,
+        K1=K1,
+        K2=K2,
+        K3=K3,
+        stringifier=stringifier,
+    )

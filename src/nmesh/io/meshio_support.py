@@ -1,14 +1,20 @@
-"""Mesh file IO built around ``meshio`` with legacy HDF5 fallback support."""
+"""Mesh file IO built around ``meshio`` and legacy Nmesh HDF5 support."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Protocol, cast
 
 import meshio
 import numpy as np
+from numpy.typing import ArrayLike, NDArray
 
 from ..backend import RawMesh
-from .legacy_nmesh_hdf5 import load_raw_mesh_from_legacy_nmesh_hdf5
-from meshio._exceptions import ReadError as MeshioReadError
-
+from .legacy_nmesh_hdf5 import (
+    is_legacy_nmesh_hdf5,
+    load_raw_mesh_from_legacy_nmesh_hdf5,
+)
 
 _CELL_TYPE_BY_DIM = {
     1: "line",
@@ -17,6 +23,33 @@ _CELL_TYPE_BY_DIM = {
 }
 
 _DIM_BY_CELL_TYPE = {value: key for key, value in _CELL_TYPE_BY_DIM.items()}
+
+_REGION_DATA_KEYS = ("region", "gmsh:physical", "cell_tags", "gmsh:geometrical")
+
+
+class _CellBlock(Protocol):
+    type: str
+    data: NDArray[np.integer]
+
+
+class _MeshData(Protocol):
+    points: NDArray[np.floating]
+    cells: Sequence[_CellBlock]
+    cell_data: Mapping[str, Sequence[ArrayLike]]
+
+
+def _read_meshio(path: Path) -> _MeshData:
+    read = cast("object", vars(meshio)["read"])
+    if not callable(read):
+        raise TypeError("meshio.read is not callable")
+    return cast(_MeshData, read(path))
+
+
+def _write_meshio(path: Path, mesh: object) -> None:
+    write = cast("object", vars(meshio)["write"])
+    if not callable(write):
+        raise TypeError("meshio.write is not callable")
+    write(path, mesh)
 
 
 def _cell_type_for(raw_mesh: RawMesh) -> str:
@@ -33,44 +66,78 @@ def _cell_type_for(raw_mesh: RawMesh) -> str:
     return _CELL_TYPE_BY_DIM.get(raw_mesh.dim, "tetra")
 
 
-def _regions_from_meshio(mesh, cell_type: str, count: int) -> list[int]:
-    """Extract region ids from common meshio cell-data keys."""
-    cell_data_dict = getattr(mesh, "cell_data_dict", {})
-    for key in ("region", "gmsh:physical", "cell_tags", "gmsh:geometrical"):
-        values_by_type = cell_data_dict.get(key, {})
-        if cell_type in values_by_type:
-            return values_by_type[cell_type].astype(int).tolist()
-    return [1] * count
+def _regions_from_meshio(
+    mesh: _MeshData,
+    cell_blocks: Sequence[tuple[int, _CellBlock]],
+) -> list[int]:
+    """Extract region ids aligned with the selected meshio cell blocks."""
+    cell_data = getattr(mesh, "cell_data", {})
+    total_count = sum(len(cell_block.data) for _, cell_block in cell_blocks)
+    for key in _REGION_DATA_KEYS:
+        if key not in cell_data:
+            continue
+
+        values_by_block = cell_data[key]
+        regions: list[int] = []
+        for block_index, cell_block in cell_blocks:
+            if block_index >= len(values_by_block):
+                raise ValueError(
+                    f"Region data {key!r} has no entry for cell block {block_index} "
+                    f"({cell_block.type})"
+                )
+
+            values = np.asarray(values_by_block[block_index])
+            expected_count = len(cell_block.data)
+            if values.size != expected_count:
+                raise ValueError(
+                    f"Region data {key!r} for cell block {block_index} "
+                    f"({cell_block.type}) has {values.size} values; "
+                    f"expected {expected_count}"
+                )
+            integer_values = np.asarray(values, dtype=np.int_)
+            regions.extend(cast(list[int], integer_values.tolist()))
+        return regions
+
+    return [1] * total_count
 
 
 def _load_raw_mesh_from_meshio(path: Path) -> RawMesh:
     """Load a supported simplex mesh directly through ``meshio``."""
-    mesh = meshio.read(path)
-    supported = next(
-        (
-            (cell_block.type, cell_block.data)
-            for cell_block in mesh.cells
-            if cell_block.type in _DIM_BY_CELL_TYPE
-        ),
-        None,
-    )
-    if supported is None:
+    mesh = _read_meshio(path)
+    supported_blocks = [
+        (index, cell_block)
+        for index, cell_block in enumerate(mesh.cells)
+        if cell_block.type in _DIM_BY_CELL_TYPE
+    ]
+    if not supported_blocks:
         raise ValueError(f"No supported simplex cells found in {path}")
 
-    cell_type, simplices = supported
+    dim = max(_DIM_BY_CELL_TYPE[cell_block.type] for _, cell_block in supported_blocks)
+    selected_blocks = [
+        (index, cell_block)
+        for index, cell_block in supported_blocks
+        if _DIM_BY_CELL_TYPE[cell_block.type] == dim
+    ]
+    simplices = [
+        simplex
+        for _, cell_block in selected_blocks
+        for simplex in np.asarray(cell_block.data, dtype=int).tolist()
+    ]
     return RawMesh(
         points=mesh.points.astype(float).tolist(),
-        simplices=simplices.astype(int).tolist(),
-        regions=_regions_from_meshio(mesh, cell_type, len(simplices)),
-        dim=_DIM_BY_CELL_TYPE[cell_type],
+        simplices=simplices,
+        regions=_regions_from_meshio(mesh, selected_blocks),
+        dim=dim,
     )
 
 
 def save_raw_mesh_with_meshio(path: str | Path, raw_mesh: RawMesh) -> None:
     """Write a raw mesh to any meshio-supported format."""
     cell_type = _cell_type_for(raw_mesh)
-    cells = [(cell_type, np.asarray(raw_mesh.simplices, dtype=int))]
-    cell_data = None
+    cells: list[tuple[str, ArrayLike] | meshio.CellBlock] = [
+        (cell_type, np.asarray(raw_mesh.simplices, dtype=int))
+    ]
+    cell_data: dict[str, list[ArrayLike]] | None = None
     if raw_mesh.regions:
         cell_data = {"region": [np.asarray(raw_mesh.regions, dtype=int)]}
 
@@ -79,14 +146,11 @@ def save_raw_mesh_with_meshio(path: str | Path, raw_mesh: RawMesh) -> None:
         cells=cells,
         cell_data=cell_data,
     )
-    meshio.write(Path(path), mesh)
+    _write_meshio(Path(path), mesh)
 
 
 def load_raw_mesh_with_meshio(path: str | Path) -> RawMesh:
-    """Load a raw mesh via ``meshio`` or the legacy ``.nmesh.h5`` fallback.
-
-    For ``.h5`` files, falls back to the legacy nmesh loader if meshio fails.
-    For other formats, only meshio is attempted.
+    """Load a raw mesh through ``meshio`` or the recognized legacy HDF5 loader.
 
     Args:
         path: Path to the mesh file.
@@ -96,25 +160,10 @@ def load_raw_mesh_with_meshio(path: str | Path) -> RawMesh:
 
     Raises:
         ValueError: If the file format is not supported or the file is malformed.
-            For .h5 files, includes error details from both loaders.
         IOError/OSError: If the file cannot be read.
     """
     path = Path(path)
-    meshio_error = None
+    if is_legacy_nmesh_hdf5(path):
+        return load_raw_mesh_from_legacy_nmesh_hdf5(path)
 
-    try:
-        return _load_raw_mesh_from_meshio(path)
-    except (ValueError, KeyError, IOError, OSError, RuntimeError, MeshioReadError) as exc:
-        meshio_error = exc
-
-    if path.suffix.lower() == ".h5":
-        try:
-            return load_raw_mesh_from_legacy_nmesh_hdf5(path)
-        except (ValueError, KeyError, IOError, OSError, RuntimeError, MeshioReadError) as legacy_exc:
-            raise ValueError(
-                f"Unable to read {path} with meshio or the legacy nmesh HDF5 "
-                f"loader: meshio error was {meshio_error!r}; legacy loader "
-                f"error was {legacy_exc!r}"
-            ) from legacy_exc
-
-    raise meshio_error
+    return _load_raw_mesh_from_meshio(path)

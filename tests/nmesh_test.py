@@ -1,22 +1,52 @@
 import unittest
-import math
-from pathlib import Path
+
 import nmesh
 from nmesh.backend import RawMesh
 
+
 class TestNMesh(unittest.TestCase):
+    def test_scale_node_positions_scales_region_volumes(self):
+        mesh = nmesh.mesh_from_points_and_simplices(
+            points=[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            simplices_indices=[[0, 1, 2, 3]],
+            simplices_regions=[1],
+        )
+        mesh.raw_mesh.region_volumes = [1.0 / 6.0]
+
+        mesh.scale_node_positions(2.0)
+
+        self.assertEqual(mesh.region_volumes, [4.0 / 3.0])
+
+    def test_unimplemented_mesh_distribution_options_fail_explicitly(self):
+        points = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        simplices = [[0, 1, 2, 3]]
+        with self.assertRaisesRegex(NotImplementedError, "reordering"):
+            nmesh.mesh_from_points_and_simplices(
+                points=points,
+                simplices_indices=simplices,
+                simplices_regions=[1],
+                do_reorder=True,
+            )
+        with self.assertRaisesRegex(NotImplementedError, "distribution"):
+            nmesh.mesh_from_points_and_simplices(
+                points=points,
+                simplices_indices=simplices,
+                simplices_regions=[1],
+                do_distribute=False,
+            )
+
     def test_meshing_parameters(self):
         """Test MeshingParameters setters and getters."""
         params = nmesh.get_default_meshing_parameters()
         params.dim = 3
-        
+
         # Test individual setters
         params.set_shape_force_scale(0.5)
         self.assertEqual(params["shape_force_scale"], 0.5)
-        
+
         params.set_max_steps(5000)
         self.assertEqual(params["max_steps"], 5000)
-        
+
         # Test item setting
         params["volume_force_scale"] = 0.1
         self.assertEqual(params["volume_force_scale"], 0.1)
@@ -26,11 +56,11 @@ class TestNMesh(unittest.TestCase):
         p1 = [0.0, 0.0, 0.0]
         p2 = [1.0, 1.0, 1.0]
         b = nmesh.Box(p1, p2, use_fixed_corners=True)
-        
+
         self.assertEqual(b.dim, 3)
         # 8 corners for a 3D box
         self.assertEqual(len(b.fixed_points), 8)
-        
+
         # Test transformation
         b.shift([1.0, 0.0, 0.0])
         b.scale([2.0, 2.0, 2.0])
@@ -40,10 +70,10 @@ class TestNMesh(unittest.TestCase):
         """Test CSG operations like union and difference."""
         b1 = nmesh.Box([0,0,0], [1,1,1])
         b2 = nmesh.Box([0.5,0.5,0.5], [1.5,1.5,1.5])
-        
+
         u = nmesh.union([b1, b2])
         self.assertEqual(u.dim, 3)
-        
+
         d = nmesh.difference(b1, [b2])
         self.assertEqual(d.dim, 3)
 
@@ -51,7 +81,7 @@ class TestNMesh(unittest.TestCase):
         """Test Mesh class initialization now produces a populated mesh."""
         bb = [[0,0,0], [1,1,1]]
         obj = nmesh.Box([0.2,0.2,0.2], [0.8,0.8,0.8])
-        
+
         m = nmesh.Mesh(
             bounding_box=bb,
             objects=[obj],
@@ -130,10 +160,10 @@ class TestNMesh(unittest.TestCase):
         """Test 1D mesh generation logic."""
         regions = [(0.0, 1.0), (1.0, 2.0)]
         discretization = 0.5
-        
+
         m = nmesh.generate_1d_mesh(regions, discretization)
         self.assertIsInstance(m, nmesh.MeshBase)
-        
+
         pts, simps, regs = nmesh.generate_1d_mesh_components(regions, discretization)
         self.assertEqual(len(pts), 5) # 0.0, 0.5, 1.0, 1.5, 2.0
         self.assertEqual(len(simps), 4)
@@ -145,7 +175,7 @@ class TestNMesh(unittest.TestCase):
             @property
             def points(self):
                 return [[0,0], [1,2], [-1,1]]
-        
+
         m = MockMesh("raw")
         min_c, max_corner = nmesh.outer_corners(m)
         self.assertEqual(min_c, [-1, 0])
@@ -157,7 +187,7 @@ class TestNMesh(unittest.TestCase):
         simplices = [(1, [0, 1])]
         surfaces = [(1, [0])]
         data = (points, simplices, surfaces)
-        
+
         import io
         out = io.StringIO()
         nmesh.write_mesh(data, out=out)

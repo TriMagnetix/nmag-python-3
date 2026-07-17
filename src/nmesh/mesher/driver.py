@@ -1,18 +1,21 @@
 import logging
+from collections.abc import Callable
 from enum import Enum
-from typing import Any, Callable, Tuple, Union, overload
+from typing import Any
 
 log = logging.getLogger(__name__)
 
 
 class MeshEngineCommand(Enum):
     """Commands that can be sent to the mesh engine."""
+
     DO_STEP = 1  # Execute one relaxation step
     DO_EXTRACT = 2  # Extract intermediate mesh for callback
 
 
 class MeshEngineStatus(Enum):
     """Status returned by the mesh engine."""
+
     FINISHED_STEP_LIMIT_REACHED = 1  # Maximum iteration steps reached
     FINISHED_FORCE_EQUILIBRIUM_REACHED = 2  # Forces converged to equilibrium
     CAN_CONTINUE = 3  # Engine can continue, provides continuation function
@@ -20,13 +23,13 @@ class MeshEngineStatus(Enum):
 
 
 # Type aliases for improved readability
-EngineFunc = Callable[[MeshEngineCommand], Tuple[MeshEngineStatus, Any]]
+EngineFunc = Callable[[MeshEngineCommand], tuple[MeshEngineStatus, Any]]
 Callback = Callable[[int, Any], None]
 
 
 def do_every_n_steps_driver(
     nr_steps_per_bunch: int, callback: Callback, engine_func: EngineFunc
-) -> Tuple[MeshEngineStatus, Any]:
+) -> tuple[MeshEngineStatus, Any]:
     """
     Python port of Mesh.do_every_n_steps_driver using an iterative loop.
 
@@ -88,7 +91,10 @@ def do_every_n_steps_driver(
 
 def make_mg_gendriver(
     interval: int, callback: Callable[[int, int, Any], None]
-) -> Callable[[Union[int, EngineFunc]], Union[Tuple[MeshEngineStatus, Any], Callable[[EngineFunc], Tuple[MeshEngineStatus, Any]]]]:
+) -> Callable[
+    [int | EngineFunc],
+    tuple[MeshEngineStatus, Any] | Callable[[EngineFunc], tuple[MeshEngineStatus, Any]],
+]:
     """
     Returns a gendriver using the callback signature for multi-geometry meshing.
 
@@ -113,9 +119,10 @@ def make_mg_gendriver(
         driver(0)(engine_func_piece_0)
         driver(1)(engine_func_piece_1)
     """
+
     def gendriver(
-        piece_or_engine: Union[int, EngineFunc]
-    ) -> Union[Tuple[MeshEngineStatus, Any], Callable[[EngineFunc], Tuple[MeshEngineStatus, Any]]]:
+        piece_or_engine: int | EngineFunc,
+    ) -> tuple[MeshEngineStatus, Any] | Callable[[EngineFunc], tuple[MeshEngineStatus, Any]]:
         if callable(piece_or_engine):
             # Type checker needs help here - we know it's an EngineFunc
             engine_func: EngineFunc = piece_or_engine
@@ -127,7 +134,7 @@ def make_mg_gendriver(
 
         nr_piece = int(piece_or_engine)
 
-        def driver(engine_func: EngineFunc) -> Tuple[MeshEngineStatus, Any]:
+        def driver(engine_func: EngineFunc) -> tuple[MeshEngineStatus, Any]:
             return do_every_n_steps_driver(
                 interval,
                 lambda nr_step, mesh: callback(nr_piece, nr_step, mesh),

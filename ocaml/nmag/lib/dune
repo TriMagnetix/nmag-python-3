@@ -1,6 +1,0 @@
-(library
- (name nmag)
- (public_name nmag)
- (libraries 
-  ocaml-in-python.api
- ))

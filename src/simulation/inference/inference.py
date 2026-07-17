@@ -1,26 +1,31 @@
-import logging
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set
+from __future__ import annotations
 
-log = logging.getLogger('nmagmake')
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
+
+log = logging.getLogger("nmagmake")
+
 
 @dataclass
 class InferenceEntity:
     name: str
-    depends_on: List[str] = field(default_factory=list)
-    how_to_make: List[Callable[..., Any]] = field(default_factory=list)
-    also_updates: List[str] = field(default_factory=list)
-    _is_prerequisite: List[str] = field(default_factory=list, init=False)
+    depends_on: list[str] = field(default_factory=lambda: [])
+    how_to_make: list[Callable[..., Any]] = field(default_factory=lambda: [])
+    also_updates: list[str] = field(default_factory=lambda: [])
+    _is_prerequisite: list[str] = field(default_factory=lambda: [], init=False)
     _is_uptodate: bool = field(default=False, init=False)
 
+
 class InferenceEngine:
-    def __init__(self, entities: Optional[List[Dict[str, Any]]] = None):
-        self.entities: Dict[str, InferenceEntity] = {}
+    def __init__(self, entities: list[dict[str, Any]] | None = None) -> None:
+        self.entities: dict[str, InferenceEntity] = {}
         if entities:
             for e_desc in entities:
                 ie = InferenceEntity(**e_desc)
                 self.entities[ie.name] = ie
-        
+
         self._build_backlinks()
         self._check_for_cycles()
 
@@ -34,8 +39,8 @@ class InferenceEngine:
 
     def _check_for_cycles(self) -> None:
         """Detects circular dependencies using DFS to prevent infinite recursion."""
-        visited: Set[str] = set()
-        rec_stack: Set[str] = set()
+        visited: set[str] = set()
+        rec_stack: set[str] = set()
 
         def has_cycle(name: str) -> bool:
             visited.add(name)
@@ -84,7 +89,7 @@ class InferenceEngine:
             step(**make_args)
 
         for also_name in ie.also_updates:
-            if (other := self.entities.get(also_name)):
+            if other := self.entities.get(also_name):
                 other._is_uptodate = True
-        
+
         ie._is_uptodate = True

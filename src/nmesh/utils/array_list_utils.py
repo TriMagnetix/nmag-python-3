@@ -1,10 +1,13 @@
+from collections.abc import Callable, Sequence
+from typing import Any, TypeVar
+
 import numpy as np
-from typing import Callable, Sequence, TypeVar
 from numpy.typing import NDArray
 
-T = TypeVar('T')
+T = TypeVar("T")
 
-def array_filter(p: Callable[[T], bool], arr: Sequence[T]) -> NDArray:
+
+def array_filter(p: Callable[[T], bool], arr: Sequence[T]) -> NDArray[Any]:
     """Filter array elements using a predicate function.
 
     Args:
@@ -17,6 +20,7 @@ def array_filter(p: Callable[[T], bool], arr: Sequence[T]) -> NDArray:
     arr_np = np.asanyarray(arr)
     mask = np.array([p(x) for x in arr_np], dtype=bool)
     return arr_np[mask]
+
 
 def array_position(x: T, arr: Sequence[T], start: int = 0) -> int:
     """Find first position of element x in array starting from index start.
@@ -35,6 +39,7 @@ def array_position(x: T, arr: Sequence[T], start: int = 0) -> int:
     if len(indices) > 0:
         return int(indices[0] + start)
     return -1
+
 
 def array_position_if(p: Callable[[T], bool], arr: Sequence[T], start: int = 0) -> int:
     """Find first position where predicate p is True, starting from index start.
@@ -55,7 +60,8 @@ def array_position_if(p: Callable[[T], bool], arr: Sequence[T], start: int = 0) 
         return int(indices[0] + start)
     return -1
 
-def array_one_shorter(arr: Sequence[T], pos: int) -> NDArray:
+
+def array_one_shorter(arr: Sequence[T], pos: int) -> NDArray[Any]:
     """Remove element at position pos from array.
 
     Args:
@@ -66,6 +72,7 @@ def array_one_shorter(arr: Sequence[T], pos: int) -> NDArray:
         New array with element removed
     """
     return np.delete(np.asanyarray(arr), pos)
+
 
 def determinant(mx: Sequence[Sequence[float]]) -> float:
     """Compute determinant of a matrix.
@@ -78,7 +85,8 @@ def determinant(mx: Sequence[Sequence[float]]) -> float:
     """
     return float(np.linalg.det(np.asanyarray(mx)))
 
-def inverse(mx: Sequence[Sequence[float]]) -> NDArray:
+
+def inverse(mx: Sequence[Sequence[float]]) -> NDArray[np.float64]:
     """Compute inverse of a matrix.
 
     Args:
@@ -89,7 +97,10 @@ def inverse(mx: Sequence[Sequence[float]]) -> NDArray:
     """
     return np.linalg.inv(np.asanyarray(mx))
 
-def det_and_inv(mx: Sequence[Sequence[float]]) -> tuple[float, NDArray]:
+
+def det_and_inv(
+    mx: Sequence[Sequence[float]],
+) -> tuple[float, NDArray[np.float64]]:
     """Compute determinant and inverse of a matrix simultaneously.
 
     Args:
@@ -103,7 +114,8 @@ def det_and_inv(mx: Sequence[Sequence[float]]) -> tuple[float, NDArray]:
     inv = np.linalg.inv(arr)
     return float(det), inv
 
-def cross_product_3d(v1: Sequence[float], v2: Sequence[float]) -> NDArray:
+
+def cross_product_3d(v1: Sequence[float], v2: Sequence[float]) -> NDArray[np.float64]:
     """Compute 3D cross product of two vectors.
 
     Args:
