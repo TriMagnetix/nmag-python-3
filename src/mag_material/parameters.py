@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import cast
 
-from numpy.typing import ArrayLike
-
-from anisotropy import PredefinedAnisotropy
+from anisotropy import EnergyFunction, PredefinedAnisotropy
 from si.physical import SI
 
 MaterialScalar = SI | float
-AnisotropyFunction = Callable[[ArrayLike], float]
+AnisotropyFunction = EnergyFunction
 
 
 @dataclass(slots=True)
@@ -77,13 +75,30 @@ def _resolve_anisotropy(
     anisotropy_order: int | None,
 ) -> tuple[PredefinedAnisotropy | AnisotropyFunction | None, int | None]:
     if isinstance(anisotropy, PredefinedAnisotropy):
-        if anisotropy_order:
+        if anisotropy_order is not None:
             raise ValueError(
                 "Cannot specify custom 'anisotropy_order' when using a predefined anisotropy."
             )
+        if not anisotropy.has_function() or anisotropy.order is None:
+            raise ValueError("A material anisotropy must provide an energy function and order.")
         return anisotropy, anisotropy.order
-    if anisotropy and not anisotropy_order:
-        raise ValueError("You must specify 'anisotropy_order' when using a custom anisotropy function.")
+    if anisotropy is None:
+        if anisotropy_order is not None:
+            raise ValueError("anisotropy_order requires an anisotropy energy function.")
+        return None, None
+    if not callable(anisotropy):
+        raise TypeError("anisotropy must be a PredefinedAnisotropy, callable, or None.")
+    custom_order = cast(object, anisotropy_order)
+    if (
+        custom_order is None
+        or type(custom_order) is bool
+        or not isinstance(custom_order, int)
+        or custom_order <= 0
+    ):
+        raise ValueError(
+            "You must specify 'anisotropy_order' as a positive integer when using a custom "
+            "anisotropy function."
+        )
     return anisotropy, anisotropy_order
 
 

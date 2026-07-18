@@ -72,6 +72,13 @@ class TestMagMaterial(unittest.TestCase):
         self.assertEqual(mat.anisotropy, custom_func)
         self.assertEqual(mat.anisotropy_order, 2)
 
+        with self.assertRaisesRegex(ValueError, "energy function and order"):
+            MagMaterial(name="NoEnergy", anisotropy=PredefinedAnisotropy(order=2))
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            MagMaterial(name="BadOrder", anisotropy=custom_func, anisotropy_order=0)
+        with self.assertRaisesRegex(TypeError, "callable"):
+            MagMaterial(name="BadModel", anisotropy="not-a-model", anisotropy_order=2)
+
     def test_parameter_validation(self):
         """Test validation of physical parameter units and values."""
         # Case 1: Providing a parameter with incorrect units should raise a TypeError.
