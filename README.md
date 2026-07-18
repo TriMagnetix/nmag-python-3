@@ -3,11 +3,11 @@
 `nmag-python-3` is a modern, standalone Python implementation of the Nmag
 micromagnetic simulation interface. It can read legacy Nmesh files and modern
 simplex meshes, assign magnetic materials, calculate effective fields, relax
-isotropic LLG systems, save NDT/HDF5 results, and probe fields inside
+LLG systems, save NDT/HDF5 results, and probe fields inside
 tetrahedral meshes.
 
 The current release includes a minimum viable dynamic solver for the supported
-isotropic workflows. Dynamic results should still be validated against legacy
+workflows. Dynamic results should still be validated against legacy
 Nmag when introducing a new geometry or material configuration.
 
 ## Requirements
@@ -152,6 +152,39 @@ simulation.advance_time(nmag.SI(1e-12, "s"))
 The torque uses each material's `llg_polarisation`, `llg_xi`, `llg_damping`,
 and `Ms`. `dm_dcurrent` exposes the recovered FEM directional derivative.
 
+Uniaxial and cubic anisotropy contribute to `H_anis`, `E_anis`, total fields,
+saved output, and DOP853 dynamics. Constants may be plain J/m^3 values or SI
+objects:
+
+```python
+easy_axis = nmag.uniaxial_anisotropy(
+    axis=[0.0, 0.0, 1.0],
+    K1=nmag.SI(1e5, "J/m^3"),
+    K2=nmag.SI(2e4, "J/m^3"),
+)
+material = nmag.MagMaterial(name="memory", anisotropy=easy_axis)
+```
+
+Use `nmag.cubic_anisotropy(axis1, axis2, K1, K2, K3)` for crystalline cubic
+terms. A custom polynomial energy callable is also accepted with an explicit
+order; it may return either J/m^3 as a float or an SI energy density:
+
+```python
+def anisotropy_energy(m):
+    return nmag.SI(1e5 * m[2] ** 2, "J/m^3")
+
+material = nmag.MagMaterial(
+    name="custom",
+    anisotropy=anisotropy_energy,
+    anisotropy_order=2,
+)
+```
+
+Predefined models use vectorized analytic derivatives. Custom callables use a
+validated finite-difference derivative and are therefore intended for smaller
+or exploratory models. The experimental Diffsol backend does not yet support
+anisotropy.
+
 For specialized demagnetization studies, `MagMaterial` accepts
 `scale_volume_charges`. It scales only the material's interior volume-charge
 source; boundary surface charges remain unchanged. The physical default is
@@ -219,16 +252,18 @@ affine operator and is incompatible with low-memory mode.
 
 ## Supported Scope
 
-Nmag-python-3 supports 3D tetrahedral, isotropic micromagnetic workflows:
+Nmag-python-3 supports 3D tetrahedral micromagnetic workflows:
 legacy and modern mesh loading, demagnetization, exchange, uniform applied
-fields, pinning, Zhang-Li current torque, adaptive dynamics and relaxation,
-native checkpoints, and NDT/HDF5 output. The optional Rust accelerator runs
-the same supported model as the Python paths.
+fields, uniaxial and cubic anisotropy, custom polynomial anisotropy energies,
+pinning, Zhang-Li current torque, adaptive dynamics and relaxation, native
+checkpoints, and NDT/HDF5 output. The optional Rust accelerator runs the same
+supported model as the Python paths.
 
-The main gaps are anisotropy, thermal and Slonczewski physics, periodic and
-custom `phi_BEM` demag, shared-node material-specific magnetization and local
-coupling, and full legacy hysteresis compatibility. Exact matrix-free demag
-avoids dense boundary storage but can still be slow on difficult geometries.
+The main gaps are thermal and Slonczewski physics, periodic and custom
+`phi_BEM` demag, shared-node material-specific magnetization and local
+coupling, anisotropy in Diffsol, and full legacy hysteresis compatibility.
+Exact matrix-free demag avoids dense boundary storage but can still be slow on
+difficult geometries.
 
 ## Mesh Formats
 
