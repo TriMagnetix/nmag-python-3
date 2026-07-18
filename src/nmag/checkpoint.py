@@ -12,6 +12,7 @@ from typing import Any, cast
 import h5py
 import numpy as np
 
+from anisotropy import anisotropy_signature_values
 from si.physical import SI
 from simulation.clock import SimulationClock
 
@@ -87,6 +88,18 @@ def material_fingerprint(simulation: Any) -> str:
         ("stt_nonadiabatic", coefficients.stt_nonadiabatic),
     ):
         _array_fingerprint(digest, name, values, np.dtype(np.float64))
+    for region in np.unique(regions):
+        material = simulation._simplex_material(int(region))
+        signature = anisotropy_signature_values(
+            material.anisotropy,
+            material.anisotropy_order,
+        )
+        _array_fingerprint(
+            digest,
+            f"anisotropy:{int(region)}",
+            signature,
+            np.dtype(np.float64),
+        )
     return digest.hexdigest()
 
 

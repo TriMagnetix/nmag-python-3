@@ -31,29 +31,19 @@ def test_get_all_field_names_uses_cheap_availability_predicate(tmp_path, monkeyp
     def fail_compute(subfieldname):
         raise AssertionError(f"availability should not compute {subfieldname}")
 
-    state_check_counts = {"tetrahedral": 0, "anisotropy": 0}
+    state_check_counts = {"tetrahedral": 0}
     original_tetrahedral_check = sim._has_tetrahedral_mesh_or_empty
-    original_anisotropy_check = sim._anisotropy_is_zero_by_construction
 
     def counting_tetrahedral_check():
         state_check_counts["tetrahedral"] += 1
         return original_tetrahedral_check()
 
-    def counting_anisotropy_check():
-        state_check_counts["anisotropy"] += 1
-        return original_anisotropy_check()
-
     monkeypatch.setattr(sim, "_compute_subfield_array", fail_compute)
     monkeypatch.setattr(sim, "_has_tetrahedral_mesh_or_empty", counting_tetrahedral_check)
-    monkeypatch.setattr(
-        sim,
-        "_anisotropy_is_zero_by_construction",
-        counting_anisotropy_check,
-    )
 
     field_names = sim.get_all_field_names()
 
-    assert state_check_counts == {"tetrahedral": 1, "anisotropy": 1}
+    assert state_check_counts == {"tetrahedral": 1}
     assert "H_total" in field_names
     assert "H_demag" in field_names
     assert "m" in field_names
@@ -61,7 +51,7 @@ def test_get_all_field_names_uses_cheap_availability_predicate(tmp_path, monkeyp
     assert "dm_dcurrent" not in field_names
 
 
-def test_get_all_field_names_keeps_exchange_available_with_unsupported_anisotropy(tmp_path, monkeypatch):
+def test_get_all_field_names_includes_supported_anisotropy(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     mesh_path = tmp_path / "mesh.nmesh"
     helpers.write_single_region_mesh(mesh_path)
@@ -81,10 +71,10 @@ def test_get_all_field_names_keeps_exchange_available_with_unsupported_anisotrop
 
     assert "H_exch" in field_names
     assert "E_exch" in field_names
-    assert "H_anis" not in field_names
-    assert "E_anis" not in field_names
-    assert "H_total" not in field_names
-    assert "E_total" not in field_names
+    assert "H_anis" in field_names
+    assert "E_anis" in field_names
+    assert "H_total" in field_names
+    assert "E_total" in field_names
 
 
 def test_h_demag_save_and_average_use_internal_demag_paths(tmp_path, monkeypatch):
@@ -270,5 +260,4 @@ def test_save_data_reuses_subfield_arrays_across_ndt_and_spatial_fields(tmp_path
         assert counts[fieldname] == 1
     assert counts.get("current_density", 0) == 0
     assert counts.get("dm_dcurrent", 0) == 0
-
 

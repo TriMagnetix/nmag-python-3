@@ -20,6 +20,7 @@ def _simulation(
     *,
     name: str,
     do_demag: bool = False,
+    anisotropy: object | None = None,
     config: nmag.NmagConfig | None = None,
 ) -> nmag.Simulation:
     monkeypatch.chdir(tmp_path)
@@ -41,6 +42,7 @@ def _simulation(
         exchange_coupling=nmag.SI(13.0e-12, "J/m"),
         llg_damping=0.5,
         do_precession=False,
+        anisotropy=anisotropy,  # type: ignore[arg-type]
     )
     simulation = nmag.Simulation(name=name, do_demag=do_demag, config=config)
     simulation.load_mesh(
@@ -58,6 +60,19 @@ def test_integrator_backend_defaults_to_scipy() -> None:
 def test_integrator_backend_rejects_unknown_value() -> None:
     with pytest.raises(ValueError, match="integrator_backend"):
         nmag.NmagConfig(integrator_backend="unknown")  # type: ignore[arg-type]
+
+
+def test_diffsol_rejects_dynamic_anisotropy_explicitly(tmp_path, monkeypatch) -> None:
+    simulation = _simulation(
+        tmp_path,
+        monkeypatch,
+        name="anisotropy",
+        anisotropy=nmag.uniaxial_anisotropy([0, 0, 1], nmag.SI(1.0e5, "J/m^3")),
+    )
+    simulation.set_m([1.0, 0.0, 1.0])
+
+    with pytest.raises(NotImplementedError, match="does not support dynamic anisotropy"):
+        implicit_dynamics.relax_with_diffsol(simulation)
 
 
 def test_low_memory_mode_rejects_dense_diffsol(monkeypatch: pytest.MonkeyPatch) -> None:

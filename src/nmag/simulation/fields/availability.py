@@ -48,7 +48,6 @@ class SimulationFieldAvailabilityMixin:
         has_m = "m" in self._fields
         has_mesh_and_m = has_mesh and has_m
         has_tetrahedral_mesh = self._has_tetrahedral_mesh_or_empty()
-        anisotropy_is_zero = self._anisotropy_is_zero_by_construction()
         return [
             quantity.name
             for quantity in _simulation_compatibility_binding(
@@ -60,7 +59,6 @@ class SimulationFieldAvailabilityMixin:
                 has_m=has_m,
                 has_mesh_and_m=has_mesh_and_m,
                 has_tetrahedral_mesh=has_tetrahedral_mesh,
-                anisotropy_is_zero=anisotropy_is_zero,
             )
         ]
 
@@ -81,18 +79,12 @@ class SimulationFieldAvailabilityMixin:
         has_mesh = self.mesh is not None
         has_m = "m" in self._fields
         has_tetrahedral_mesh = self._has_tetrahedral_mesh_or_empty()
-        anisotropy_is_zero = (
-            self._anisotropy_is_zero_by_construction()
-            if subfieldname in {"H_anis", "E_anis", "dmdt", "H_total", "E_total"}
-            else False
-        )
         return self._is_subfield_available_from_state(
             subfieldname,
             has_mesh=has_mesh,
             has_m=has_m,
             has_mesh_and_m=has_mesh and has_m,
             has_tetrahedral_mesh=has_tetrahedral_mesh,
-            anisotropy_is_zero=anisotropy_is_zero,
         )
 
     def _is_subfield_available_from_state(
@@ -103,7 +95,6 @@ class SimulationFieldAvailabilityMixin:
         has_m: bool,
         has_mesh_and_m: bool,
         has_tetrahedral_mesh: bool,
-        anisotropy_is_zero: bool,
     ) -> bool:
         has_m_on_tetrahedral_mesh = self._has_m_on_tetrahedral_mesh(
             has_mesh_and_m,
@@ -111,29 +102,14 @@ class SimulationFieldAvailabilityMixin:
         )
         state_availability = {
             "pin": has_mesh,
-            "H_anis": self._has_isotropic_magnetisation(
-                has_mesh_and_m,
-                anisotropy_is_zero,
-            ),
-            "E_anis": self._has_isotropic_magnetisation(
-                has_mesh_and_m,
-                anisotropy_is_zero,
-            ),
+            "H_anis": has_mesh_and_m,
+            "E_anis": has_mesh_and_m,
             "H_exch": has_m_on_tetrahedral_mesh,
             "E_exch": has_m_on_tetrahedral_mesh,
             "dm_dcurrent": self._has_current_density(has_m_on_tetrahedral_mesh),
-            "dmdt": self._has_isotropic_magnetisation(
-                has_m_on_tetrahedral_mesh,
-                anisotropy_is_zero,
-            ),
-            "H_total": self._has_isotropic_magnetisation(
-                has_m_on_tetrahedral_mesh,
-                anisotropy_is_zero,
-            ),
-            "E_total": self._has_isotropic_magnetisation(
-                has_m_on_tetrahedral_mesh,
-                anisotropy_is_zero,
-            ),
+            "dmdt": has_m_on_tetrahedral_mesh,
+            "H_total": has_m_on_tetrahedral_mesh,
+            "E_total": has_m_on_tetrahedral_mesh,
             "E_demag": self._has_demag_magnetisation(has_mesh_and_m),
             "phi": self._has_demag_magnetisation(has_mesh_and_m),
             "rho": self._has_demag_magnetisation(has_mesh_and_m),
@@ -149,10 +125,6 @@ class SimulationFieldAvailabilityMixin:
     @staticmethod
     def _has_m_on_tetrahedral_mesh(has_mesh_and_m: bool, has_tetrahedral_mesh: bool) -> bool:
         return has_mesh_and_m and has_tetrahedral_mesh
-
-    @staticmethod
-    def _has_isotropic_magnetisation(has_magnetisation: bool, anisotropy_is_zero: bool) -> bool:
-        return has_magnetisation and anisotropy_is_zero
 
     def _has_current_density(self, has_m_on_tetrahedral_mesh: bool) -> bool:
         return has_m_on_tetrahedral_mesh and "current_density" in self._fields

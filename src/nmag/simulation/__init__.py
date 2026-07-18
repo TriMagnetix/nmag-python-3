@@ -20,6 +20,8 @@ from ..dynamics import NodalMaterialCoefficients
 from ..output import prepare_output_files
 from . import fields as _field_helpers
 from . import support as _support_helpers
+from .anisotropy import SimulationAnisotropyMixin
+from .anisotropy.materials import NodalAnisotropyGroup
 from .demag.solver import SimulationDemagMixin
 from .dynamics import SimulationDynamicsMixin
 from .fields import SimulationFieldMixin
@@ -76,6 +78,7 @@ def _data_writer_class() -> type[DataWriter]:
 class Simulation(
     SimulationMeshMixin,
     SimulationDemagMixin,
+    SimulationAnisotropyMixin,
     SimulationFieldMixin,
     SimulationDynamicsMixin,
     SimulationRestartMixin,
@@ -83,8 +86,7 @@ class Simulation(
     """Public finite-element simulation API for the Python 3 rewrite.
 
     The class owns mesh/material bookkeeping, fields, dense first-order FEM/BEM
-    demagnetization, and adaptive LLG relaxation for the supported isotropic
-    workflows.
+    demagnetization, anisotropy, and adaptive LLG relaxation.
     """
 
     def __init__(
@@ -169,6 +171,14 @@ class Simulation(
         self._exchange_nodal_cache: np.ndarray | None = None
         self._exchange_spectral_bound_cache: tuple[int, float] | None = None
         self._nodal_material_coefficients_cache: tuple[int, NodalMaterialCoefficients] | None = None
+        self._nodal_anisotropy_groups_cache: (
+            tuple[int, tuple[NodalAnisotropyGroup, ...]] | None
+        ) = None
+        self._anisotropy_fields_cache: tuple[
+            tuple[int, int],
+            np.ndarray,
+            np.ndarray,
+        ] | None = None
         self._llg_affine_operator_cache: tuple[int, np.ndarray] | None = None
         self._probe_geometry_cache_token: int | None = None
         self._probe_tetrahedral_cache: (

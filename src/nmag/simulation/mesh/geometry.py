@@ -26,6 +26,7 @@ class SimulationMeshGeometryMixin:
         self.last_demag_internal_vectors = {}
         self._exchange_cache_token = None
         self._exchange_nodal_cache = None
+        self._anisotropy_fields_cache = None
         if clear_geometry:
             self._demag_geometry_cache_token = None
             self._demag_boundary_faces_cache = None
@@ -45,6 +46,8 @@ class SimulationMeshGeometryMixin:
             self._incident_cell_volume_sums_cache = None
             self._exchange_spectral_bound_cache = None
             self._nodal_material_coefficients_cache = None
+            self._nodal_anisotropy_groups_cache = None
+            self._anisotropy_fields_cache = None
             self._llg_affine_operator_cache = None
             self._probe_geometry_cache_token = None
             self._probe_tetrahedral_cache = None
@@ -146,3 +149,5 @@ class SimulationMeshGeometryMixin:
         self._demag_volume_charge_scales_cache = None
         self._nodal_ms_values_cache = None
         self._nodal_material_coefficients_cache = None
+        self._nodal_anisotropy_groups_cache = None
+        self._anisotropy_fields_cache = None

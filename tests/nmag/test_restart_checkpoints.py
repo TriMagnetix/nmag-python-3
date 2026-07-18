@@ -35,6 +35,7 @@ def _simulation(
     damping: float = 0.1,
     shifted_mesh: bool = False,
     current_density: bool = True,
+    anisotropy: object | None = None,
     config: nmag.NmagConfig | None = None,
 ) -> nmag.Simulation:
     monkeypatch.chdir(tmp_path)
@@ -48,6 +49,7 @@ def _simulation(
         llg_polarisation=0.7,
         llg_xi=0.02,
         do_precession=False,
+        anisotropy=anisotropy,  # type: ignore[arg-type]
     )
     simulation = nmag.Simulation(name=name, do_demag=False, config=config)
     simulation.load_mesh(
@@ -161,6 +163,40 @@ def test_full_restart_clears_current_density_absent_from_checkpoint(
     target.load_restart_file(checkpoint)
 
     assert "current_density" not in target._fields
+
+
+def test_full_restart_validates_anisotropy_but_m_transfer_does_not(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_anisotropy = nmag.uniaxial_anisotropy([0, 0, 1], nmag.SI(1.0e5, "J/m^3"))
+    source = _simulation(
+        tmp_path,
+        monkeypatch,
+        name="anisotropy-source",
+        anisotropy=source_anisotropy,
+    )
+    checkpoint = source.save_restart_file(tmp_path / "anisotropy.h5")
+
+    compatible = _simulation(
+        tmp_path,
+        monkeypatch,
+        name="anisotropy-compatible",
+        anisotropy=nmag.uniaxial_anisotropy([0, 0, 1], nmag.SI(1.0e5, "J/m^3")),
+    )
+    compatible.load_restart_file(checkpoint)
+
+    incompatible = _simulation(
+        tmp_path,
+        monkeypatch,
+        name="anisotropy-incompatible",
+        anisotropy=nmag.uniaxial_anisotropy([0, 0, 1], nmag.SI(1.1e5, "J/m^3")),
+    )
+    with pytest.raises(ValueError, match="materials"):
+        incompatible.load_restart_file(checkpoint)
+
+    incompatible.load_m_from_h5file(checkpoint)
+    np.testing.assert_array_equal(incompatible._fields["m"], source._fields["m"])
 
 
 @pytest.mark.parametrize("kind", ["version", "shape", "nonfinite"])

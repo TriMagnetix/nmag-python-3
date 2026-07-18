@@ -65,9 +65,8 @@ class SimulationFieldDerivedMixin:
         return rho
 
     def _derived_h_anis(self, point_count: int) -> np.ndarray:
-        if not self._anisotropy_is_zero_by_construction():
-            raise KeyError("H_anis is not implemented for anisotropic materials.")
-        return np.zeros((point_count, 3), dtype=float)
+        field, _energy = self._get_anisotropy_fields()
+        return field
 
     def _derived_h_exch(self, _point_count: int) -> np.ndarray:
         return self._get_exchange_nodal_field()
@@ -113,9 +112,8 @@ class SimulationFieldDerivedMixin:
         return h_total + self._subfield_array("H_anis") + self._subfield_array("H_exch")
 
     def _derived_e_anis(self, point_count: int) -> np.ndarray:
-        if not self._anisotropy_is_zero_by_construction():
-            raise KeyError("E_anis is not implemented for anisotropic materials.")
-        return np.zeros(point_count, dtype=float)
+        _field, energy = self._get_anisotropy_fields()
+        return energy
 
     def _derived_e_exch(self, _point_count: int) -> np.ndarray:
         return (
@@ -156,9 +154,6 @@ class SimulationFieldDerivedMixin:
             + self._subfield_array("E_exch")
             + self._subfield_array("E_demag")
         )
-
-    def _anisotropy_is_zero_by_construction(self) -> bool:
-        return all(getattr(material, "anisotropy", None) is None for material in self.materials)
 
     def _exchange_is_zero_by_construction(self) -> bool:
         if "m" not in self._fields:
