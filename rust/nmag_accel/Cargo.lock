@@ -782,6 +782,7 @@ name = "nmag-accel"
 version = "0.1.0"
 dependencies = [
  "diffsol",
+ "faer",
  "ndarray",
  "numpy",
  "pyo3",

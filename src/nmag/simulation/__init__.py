@@ -14,6 +14,7 @@ from simulation.clock import SimulationClock
 from .. import backends as _backend_helpers
 from .. import demag as _demag_helpers
 from ..config import NmagConfig
+from ..demag.bem_operator import BemOperatorStats
 from ..demag.linear import ScipyLUFactorization
 from ..dynamics import NodalMaterialCoefficients
 from ..output import prepare_output_files
@@ -125,6 +126,7 @@ class Simulation(
         self.last_subfield_average_timings_seconds: dict[str, float] = {}
         self.last_maxangle_timings_seconds: dict[str, float] = {}
         self.last_demag_solve_diagnostics: dict[str, float | int] = {}
+        self._last_bem_operator_stats: BemOperatorStats | None = None
         self.last_demag_internal_vectors: dict[str, np.ndarray] = {}
         self._active_subfield_array_timings: dict[str, float] | None = None
 
@@ -144,7 +146,7 @@ class Simulation(
         self._demag_cell_field_cache: tuple[np.ndarray, np.ndarray] | None = None
         self._demag_geometry_cache_token: int | None = None
         self._demag_boundary_faces_cache: list[tuple[int, tuple[int, int, int]]] | None = None
-        self._demag_bem_cache: tuple[str, np.ndarray, Any] | None = None
+        self._demag_bem_cache: tuple[str, np.ndarray, Any, BemOperatorStats] | None = None
         self._demag_fem_geometry_cache: tuple[str, Any, np.ndarray, np.ndarray] | None = None
         self._demag_gauge_factorization_cache: ScipyLUFactorization | None = None
         self._demag_dirichlet_factorization_cache: (
@@ -214,6 +216,12 @@ class Simulation(
     @property
     def last_step_dt(self) -> SI:
         return self.clock.last_step_dt_si
+
+    @property
+    def last_bem_operator_stats(self) -> BemOperatorStats | None:
+        """Return diagnostics for the currently cached boundary operator."""
+
+        return self._last_bem_operator_stats
 
     def load_mesh(
         self,

@@ -33,7 +33,7 @@ def test_public_api_surface() -> None:
         "recover_demag_nodal_field",
     }
 
-    assert nmag_accel.API_VERSION == 1
+    assert nmag_accel.API_VERSION == 2
     assert all(callable(getattr(nmag_accel, name)) for name in expected_functions)
 
 

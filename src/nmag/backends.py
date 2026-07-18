@@ -6,16 +6,16 @@ import importlib
 import os
 from types import ModuleType
 
-from .config import NmagConfig, RustKernel
+from .config import DEMAG_BEM_STORAGE_ENV, NmagConfig, RustKernel
 from .resources import available_memory_bytes
 
-RUST_ACCELERATOR_API_VERSION = 1
+RUST_ACCELERATOR_API_VERSION = 2
 MEMORY_MODE_ENV = "NMAG_MEMORY_MODE"
 MEMORY_MODES = frozenset({"auto", "low"})
 AUTO_DENSE_MEMORY_FRACTION = 0.2
 
-DEMAG_BEM_STORAGE_BACKEND_ENV = "NMAG_DEMAG_BEM_STORAGE_BACKEND"
-DEMAG_BEM_STORAGE_BACKENDS = frozenset({"auto", "dense", "matrix-free"})
+DEMAG_BEM_STORAGE_BACKEND_ENV = DEMAG_BEM_STORAGE_ENV
+DEMAG_BEM_STORAGE_BACKENDS = frozenset({"auto", "dense", "hierarchical", "matrix-free"})
 DEMAG_BEM_AUTO_MATRIX_FREE_MIN_BOUNDARY_NODES_ENV = (
     "NMAG_DEMAG_BEM_AUTO_MATRIX_FREE_MIN_BOUNDARY_NODES"
 )
@@ -401,8 +401,15 @@ def _positive_environment_int(name: str, default: int, description: str) -> int:
     return minimum
 
 
-def _selected_demag_bem_storage_backend(boundary_node_count: int | None = None) -> str:
-    backend = os.environ.get(DEMAG_BEM_STORAGE_BACKEND_ENV, "auto").strip().lower()
+def _selected_demag_bem_storage_backend(
+    boundary_node_count: int | None = None,
+    config: NmagConfig | None = None,
+) -> str:
+    backend = (
+        os.environ.get(DEMAG_BEM_STORAGE_BACKEND_ENV, "auto").strip().lower()
+        if config is None
+        else config.demag_bem_storage
+    )
     if backend not in DEMAG_BEM_STORAGE_BACKENDS:
         choices = ", ".join(sorted(DEMAG_BEM_STORAGE_BACKENDS))
         raise ValueError(f"Unsupported {DEMAG_BEM_STORAGE_BACKEND_ENV}={backend!r}; choose one of {choices}.")
@@ -416,7 +423,12 @@ def _selected_demag_bem_storage_backend(boundary_node_count: int | None = None) 
         item_count=boundary_node_count,
         fallback_min_items=_demag_bem_auto_matrix_free_min_boundary_nodes(),
     ):
-        return "matrix-free"
+        mode = _policy(config).accelerator_mode_for(RustKernel.LINDHOLM_BEM)
+        if mode == "off" or (mode == "auto" and not _rust_accelerator_available()):
+            return "matrix-free"
+        if mode == "rust":
+            _load_rust_accelerator("NmagConfig.accelerator['lindholm_bem']")
+        return "hierarchical"
     return "dense"
 
 

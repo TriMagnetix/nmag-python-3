@@ -30,6 +30,7 @@ class SimulationMeshGeometryMixin:
             self._demag_geometry_cache_token = None
             self._demag_boundary_faces_cache = None
             self._demag_bem_cache = None
+            self._last_bem_operator_stats = None
             self._demag_fem_geometry_cache = None
             self._demag_gauge_factorization_cache = None
             self._demag_dirichlet_factorization_cache = None
@@ -139,6 +140,7 @@ class SimulationMeshGeometryMixin:
         self._demag_geometry_cache_token = token
         self._demag_boundary_faces_cache = None
         self._demag_bem_cache = None
+        self._last_bem_operator_stats = None
         self._demag_fem_geometry_cache = None
         self._demag_ms_values_cache = None
         self._demag_volume_charge_scales_cache = None

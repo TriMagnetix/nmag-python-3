@@ -236,6 +236,7 @@ class SimulationDemagFemGeometryMixin:
                 )(points, simplices)
         self._demag_boundary_faces_cache = boundary_faces
         self._demag_bem_cache = None
+        self._last_bem_operator_stats = None
         return boundary_faces
 
     def _boundary_faces_for_demag_mesh_rust(

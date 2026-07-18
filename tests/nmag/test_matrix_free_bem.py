@@ -41,6 +41,7 @@ def _simulation(
     name: str,
     *,
     accelerator: str = "auto",
+    storage: str = "auto",
 ) -> nmag.Simulation:
     material = nmag.MagMaterial(
         name="Py",
@@ -49,7 +50,10 @@ def _simulation(
         llg_damping=0.5,
         do_precession=False,
     )
-    simulation = nmag.Simulation(name=name, config=nmag.NmagConfig(accelerator=accelerator))
+    simulation = nmag.Simulation(
+        name=name,
+        config=nmag.NmagConfig(accelerator=accelerator, demag_bem_storage=storage),
+    )
     simulation.load_mesh(
         str(mesh_path),
         [("magnetic", material)],
@@ -65,6 +69,7 @@ def test_auto_bem_storage_switches_without_rejecting(
     monkeypatch.delenv(DEMAG_BEM_STORAGE_BACKEND_ENV, raising=False)
     monkeypatch.setenv(DEMAG_BEM_AUTO_MATRIX_FREE_MIN_BOUNDARY_NODES_ENV, "5")
     monkeypatch.setattr(backends, "available_memory_bytes", lambda: None)
+    monkeypatch.setattr(backends, "_rust_accelerator_available", lambda: False)
 
     assert _selected_demag_bem_storage_backend(4) == "dense"
     assert _selected_demag_bem_storage_backend(5) == "matrix-free"
@@ -83,6 +88,7 @@ def test_auto_bem_storage_respects_available_memory(
     monkeypatch.delenv(DEMAG_BEM_STORAGE_BACKEND_ENV, raising=False)
     monkeypatch.setenv(DEMAG_BEM_AUTO_MATRIX_FREE_MIN_BOUNDARY_NODES_ENV, "10000")
     monkeypatch.setattr(backends, "available_memory_bytes", lambda: 1_000)
+    monkeypatch.setattr(backends, "_rust_accelerator_available", lambda: False)
 
     assert _selected_demag_bem_storage_backend(10) == "matrix-free"
 
@@ -95,6 +101,16 @@ def test_auto_bem_storage_keeps_dense_above_fallback_when_memory_allows(
     monkeypatch.setattr(backends, "available_memory_bytes", lambda: 1_000_000)
 
     assert _selected_demag_bem_storage_backend(10) == "dense"
+
+
+def test_auto_bem_storage_prefers_hierarchy_when_rust_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(DEMAG_BEM_AUTO_MATRIX_FREE_MIN_BOUNDARY_NODES_ENV, "5")
+    monkeypatch.setattr(backends, "available_memory_bytes", lambda: None)
+    monkeypatch.setattr(backends, "_rust_accelerator_available", lambda: True)
+
+    assert _selected_demag_bem_storage_backend(5) == "hierarchical"
 
 
 def test_matrix_free_bem_action_matches_dense(
@@ -220,11 +236,11 @@ def test_matrix_free_demag_matches_dense(
     _two_tetra_mesh(mesh_path)
 
     monkeypatch.setenv(DEMAG_BEM_STORAGE_BACKEND_ENV, "dense")
-    dense = _simulation(mesh_path, "dense-bem")
+    dense = _simulation(mesh_path, "dense-bem", storage="dense")
     dense_field = np.asarray(dense.get_subfield("H_demag"))
 
     monkeypatch.setenv(DEMAG_BEM_STORAGE_BACKEND_ENV, "matrix-free")
-    matrix_free = _simulation(mesh_path, "matrix-free-bem")
+    matrix_free = _simulation(mesh_path, "matrix-free-bem", storage="matrix-free")
     matrix_free_field = np.asarray(matrix_free.get_subfield("H_demag"))
 
     np.testing.assert_allclose(matrix_free_field, dense_field, rtol=2.0e-12, atol=1.0e-7)
@@ -241,12 +257,12 @@ def test_low_memory_fixed_time_dynamics_match_dense(
 
     monkeypatch.setenv(DEMAG_FEM_MATRIX_BACKEND_ENV, "dense")
     monkeypatch.setenv(DEMAG_BEM_STORAGE_BACKEND_ENV, "dense")
-    dense = _simulation(mesh_path, "dense-dynamics")
+    dense = _simulation(mesh_path, "dense-dynamics", storage="dense")
     dense.advance_time(target)
 
     monkeypatch.setenv(DEMAG_FEM_MATRIX_BACKEND_ENV, "sparse")
     monkeypatch.setenv(DEMAG_BEM_STORAGE_BACKEND_ENV, "matrix-free")
-    low_memory = _simulation(mesh_path, "low-memory-dynamics")
+    low_memory = _simulation(mesh_path, "low-memory-dynamics", storage="matrix-free")
     low_memory.advance_time(target)
 
     assert low_memory._llg_affine_operator_cache is None

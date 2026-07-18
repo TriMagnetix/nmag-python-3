@@ -10,14 +10,14 @@ use crate::common::{
     scale3, should_parallelise, subtract3, Vec3,
 };
 
-struct FaceGeometry {
-    points: [Vec3; 3],
-    local_indices: [usize; 3],
-    zeta_vector: Vec3,
-    eta_vectors: [Vec3; 3],
-    edge_lengths: [f64; 3],
-    corner_cosines: [f64; 3],
-    denominator_factor: f64,
+pub(crate) struct FaceGeometry {
+    pub(crate) points: [Vec3; 3],
+    pub(crate) local_indices: [usize; 3],
+    pub(crate) zeta_vector: Vec3,
+    pub(crate) eta_vectors: [Vec3; 3],
+    pub(crate) edge_lengths: [f64; 3],
+    pub(crate) corner_cosines: [f64; 3],
+    pub(crate) denominator_factor: f64,
 }
 
 #[pyfunction]
@@ -162,7 +162,7 @@ pub(crate) fn apply_lindholm_bem_matrix_free<'py>(
     Ok(Array1::from_vec(result).into_pyarray(py))
 }
 
-fn lindholm_face_geometries(
+pub(crate) fn lindholm_face_geometries(
     points: ArrayView2<'_, f64>,
     face_nodes: ArrayView2<'_, i64>,
     local_index_by_point: ArrayView1<'_, i64>,
@@ -251,7 +251,7 @@ fn checked_boundary_local_index(value: i64, boundary_count: usize) -> PyResult<u
     Ok(local_index)
 }
 
-fn boundary_node_solid_angles(
+pub(crate) fn boundary_node_solid_angles(
     points: ArrayView2<'_, f64>,
     simplices: ArrayView2<'_, i64>,
 ) -> PyResult<Vec<f64>> {
@@ -306,7 +306,10 @@ fn boundary_node_solid_angles(
     Ok(angles)
 }
 
-fn lindholm_triangle_contributions_precomputed(observer: Vec3, face: &FaceGeometry) -> Vec3 {
+pub(crate) fn lindholm_triangle_contributions_precomputed(
+    observer: Vec3,
+    face: &FaceGeometry,
+) -> Vec3 {
     let p0 = face.points[0];
     let p1 = face.points[1];
     let p2 = face.points[2];

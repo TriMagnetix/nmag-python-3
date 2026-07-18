@@ -40,6 +40,30 @@ INVALID_RANK_AND_SHAPE_CALLS: tuple[InvalidCall, ...] = (
         r"face_nodes must have shape \(n, 3\)",
     ),
     (
+        "hierarchical lindholm point shape",
+        lambda: nmag_accel.build_lindholm_hmatrix(
+            POINTS[:, :2],
+            SIMPLICES,
+            FACE_NODES,
+            BOUNDARY_NODES,
+            LOCAL_INDEX_BY_POINT,
+        ),
+        ValueError,
+        r"points must have shape \(n, 3\)",
+    ),
+    (
+        "hierarchical lindholm face shape",
+        lambda: nmag_accel.build_lindholm_hmatrix(
+            POINTS,
+            SIMPLICES,
+            FACE_NODES[:, :2],
+            BOUNDARY_NODES,
+            LOCAL_INDEX_BY_POINT,
+        ),
+        ValueError,
+        r"face_nodes must have shape \(n, 3\)",
+    ),
+    (
         "fem geometry rank",
         lambda: nmag_accel.build_demag_fem_geometry(POINTS.ravel(), SIMPLICES),
         TypeError,

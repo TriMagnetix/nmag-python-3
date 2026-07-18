@@ -2,13 +2,14 @@ mod common;
 mod dynamics_bdf;
 mod fem;
 mod lindholm;
+mod lindholm_hmatrix;
 mod llg_maxangle;
 mod mesh_probe;
 mod parallel;
 
 use pyo3::prelude::*;
 
-const API_VERSION: u32 = 1;
+const API_VERSION: u32 = 2;
 
 #[pymodule]
 fn nmag_accel(module: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -19,6 +20,11 @@ fn nmag_accel(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     module.add_function(wrap_pyfunction!(
         lindholm::apply_lindholm_bem_matrix_free,
+        module
+    )?)?;
+    module.add_class::<lindholm_hmatrix::LindholmHMatrix>()?;
+    module.add_function(wrap_pyfunction!(
+        lindholm_hmatrix::build_lindholm_hmatrix,
         module
     )?)?;
     module.add_function(wrap_pyfunction!(fem::build_demag_fem_geometry, module)?)?;

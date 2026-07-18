@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -18,6 +18,8 @@ from ....demag import (
 )
 from ....demag.bem_operator import MatrixFreeLindholmBemOperator
 from ...support import _simulation_compatibility_binding
+from .diagnostics import bem_operator_stats, log_bem_operator_selection
+from .hierarchical import build_hierarchical_lindholm_operator
 
 
 class SimulationDemagBemOperatorMixin:
@@ -36,18 +38,31 @@ class SimulationDemagBemOperatorMixin:
         token = self._mesh_geometry_token()
         self._ensure_demag_geometry_cache_token(token)
         boundary_node_count = len({node for _, face in boundary_faces for node in face})
-        storage_backend = _selected_demag_bem_storage_backend(boundary_node_count)
+        config = getattr(self, "config", None)
+        storage_backend = _selected_demag_bem_storage_backend(boundary_node_count, config)
         if self._demag_bem_cache is not None:
-            cached_backend, boundary_nodes, operator = self._demag_bem_cache
+            cached_backend, boundary_nodes, operator, stats = self._demag_bem_cache
             if cached_backend == storage_backend:
                 cache_kind = "matrix" if storage_backend == "dense" else "operator"
+                self._last_bem_operator_stats = stats
                 self._record_active_subfield_array_timing(
                     f"demag_auxiliary:bem_{cache_kind}_cache_hit",
                     time.perf_counter() - cache_started,
                 )
                 return boundary_nodes, operator
 
-        if storage_backend == "matrix-free":
+        fallback_reason: str | None = None
+        effective_backend = storage_backend
+        if storage_backend == "hierarchical":
+            boundary_nodes, bem, fallback_reason = build_hierarchical_lindholm_operator(
+                self,
+                points,
+                simplices,
+                boundary_faces,
+            )
+            if fallback_reason is not None:
+                effective_backend = "matrix-free"
+        elif storage_backend == "matrix-free":
             boundary_nodes, bem = self._build_lindholm_bem_operator(
                 points,
                 simplices,
@@ -59,9 +74,22 @@ class SimulationDemagBemOperatorMixin:
                 simplices,
                 boundary_faces,
             )
+        elapsed = time.perf_counter() - cache_started
+        requested_backend = getattr(config, "demag_bem_storage", storage_backend)
+        stats = bem_operator_stats(
+            requested_backend=requested_backend,
+            effective_backend=effective_backend,
+            fallback_reason=fallback_reason,
+            operator=bem,
+            boundary_node_count=len(boundary_nodes),
+            boundary_faces=len(boundary_faces),
+            setup_seconds=elapsed,
+        )
+        log_bem_operator_selection(stats, storage_backend)
+        self._last_bem_operator_stats = stats
         self._demag_boundary_faces_cache = boundary_faces
-        self._demag_bem_cache = (storage_backend, boundary_nodes, bem)
-        return boundary_nodes, bem
+        self._demag_bem_cache = (storage_backend, boundary_nodes, bem, stats)
+        return boundary_nodes, cast(Any, bem)
 
     def _build_lindholm_bem_operator(
         self,
