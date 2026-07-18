@@ -9,7 +9,8 @@ from anisotropy import (
 from mag_material import MagMaterial
 from si.physical import SI, Physical
 
-from .config import ACCELERATOR_ENV, NmagConfig, RustKernel
+from .config import ACCELERATOR_ENV, HierarchicalBemConfig, NmagConfig, RustKernel
+from .demag.bem_operator import BemOperatorStats
 from .dynamics import IntegratorConfig, IntegratorStats
 from .parallel import ParallelRuntimeInfo, parallel_runtime_info
 from .simulation import Simulation
@@ -17,6 +18,8 @@ from .simulation import Simulation
 __all__ = [
     "MagMaterial",
     "NmagConfig",
+    "HierarchicalBemConfig",
+    "BemOperatorStats",
     "IntegratorConfig",
     "IntegratorStats",
     "ParallelRuntimeInfo",

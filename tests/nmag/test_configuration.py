@@ -30,6 +30,8 @@ def test_config_defaults_are_immutable_and_overrides_are_frozen() -> None:
 
     assert config.default_name == "nmag_simulation"
     assert config.output_policy == "error"
+    assert config.demag_bem_storage == "auto"
+    assert config.hierarchical_bem.relative_tolerance == 1.0e-6
     assert config.accelerator_mode_for(nmag.RustKernel.LLG) == "off"
     with pytest.raises(FrozenInstanceError):
         config.accelerator = "off"  # type: ignore[misc]
@@ -43,6 +45,7 @@ def test_config_defaults_are_immutable_and_overrides_are_frozen() -> None:
         ({"output_policy": "discard"}, "output_policy"),
         ({"accelerator": "gpu"}, "accelerator"),
         ({"integrator_backend": "cvode"}, "integrator_backend"),
+        ({"demag_bem_storage": "compressed"}, "demag_bem_storage"),
         ({"accelerator_overrides": {"llg": "off"}}, "keys"),
     ],
 )
@@ -53,12 +56,52 @@ def test_config_rejects_invalid_values(kwargs, message: str) -> None:
 
 def test_explicit_config_wins_over_environment(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv(nmag.ACCELERATOR_ENV, "off")
-    explicit = nmag.NmagConfig(accelerator="rust", output_directory=tmp_path)
+    monkeypatch.setenv("NMAG_DEMAG_BEM_STORAGE_BACKEND", "matrix-free")
+    explicit = nmag.NmagConfig(
+        accelerator="rust",
+        output_directory=tmp_path,
+        demag_bem_storage="hierarchical",
+    )
     simulation = nmag.Simulation(config=explicit)
 
     assert simulation.config is explicit
     assert simulation.config.accelerator == "rust"
+    assert simulation.config.demag_bem_storage == "hierarchical"
     assert nmag.Simulation(config=None).config.accelerator == "off"
+    assert nmag.Simulation(config=None).config.demag_bem_storage == "matrix-free"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"relative_tolerance": 0.0}, "relative_tolerance"),
+        ({"admissibility_eta": float("inf")}, "admissibility_eta"),
+        ({"leaf_size": 0}, "leaf_size"),
+        ({"max_rank": True}, "max_rank"),
+        ({"memory_fraction": 1.1}, "memory_fraction"),
+    ],
+)
+def test_hierarchical_bem_config_rejects_invalid_values(kwargs, message: str) -> None:
+    with pytest.raises((TypeError, ValueError), match=message):
+        nmag.HierarchicalBemConfig(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"relative_tolerance": "1e-6"},
+        {"admissibility_eta": True},
+        {"memory_fraction": "0.2"},
+    ],
+)
+def test_hierarchical_bem_config_rejects_non_numeric_values(kwargs) -> None:
+    with pytest.raises(TypeError, match="must be a real number"):
+        nmag.HierarchicalBemConfig(**kwargs)
+
+
+def test_config_requires_hierarchical_bem_config() -> None:
+    with pytest.raises(TypeError, match="HierarchicalBemConfig"):
+        nmag.NmagConfig(hierarchical_bem=None)  # type: ignore[arg-type]
 
 
 def test_off_auto_rust_and_kernel_override_selection(monkeypatch) -> None:
