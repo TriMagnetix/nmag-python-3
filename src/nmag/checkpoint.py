@@ -78,6 +78,7 @@ def material_fingerprint(simulation: Any) -> str:
     digest = hashlib.sha256()
     for name, values in (
         ("simplex_ms", simulation._simplex_material_ms_values(regions)),
+        ("volume_charge_scale", simulation._simplex_volume_charge_scales(regions)),
         ("exchange_prefactor", coefficients.exchange_prefactor),
         ("precession", coefficients.precession),
         ("damping", coefficients.damping),

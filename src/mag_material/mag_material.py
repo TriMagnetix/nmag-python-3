@@ -108,7 +108,8 @@ class MagMaterial:
             simulation to set up operators.
 
           `scale_volume_charges` : float
-            A debugging parameter for developers.
+            Scales the interior demagnetization volume-charge source. Surface
+            charges are unchanged. The default value is 1.0.
         """
         parameters = resolve_material_parameters(
             name,

@@ -152,6 +152,11 @@ simulation.advance_time(nmag.SI(1e-12, "s"))
 The torque uses each material's `llg_polarisation`, `llg_xi`, `llg_damping`,
 and `Ms`. `dm_dcurrent` exposes the recovered FEM directional derivative.
 
+For specialized demagnetization studies, `MagMaterial` accepts
+`scale_volume_charges`. It scales only the material's interior volume-charge
+source; boundary surface charges remain unchanged. The physical default is
+`1.0`.
+
 Native restart checkpoints preserve the loaded simulation's magnetisation,
 pinning, current density, external field, clock, and supported dynamics state:
 

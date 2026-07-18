@@ -65,6 +65,7 @@ class SimulationDemagAuxiliaryMixin:
                     m = np.asarray(self._fields["m"], dtype=float)
                     regions = list(self._require_mesh().regions or [1] * len(simplices))
                     ms_values = self._simplex_material_ms_values(regions)
+                    volume_charge_scales = self._simplex_volume_charge_scales(regions)
                 with self._record_active_subfield_array_timing_block(
                     "demag_auxiliary:fem_bem_total",
                 ):
@@ -74,6 +75,7 @@ class SimulationDemagAuxiliaryMixin:
                         boundary_faces,
                         m,
                         ms_values,
+                        volume_charge_scales,
                     )
 
         self._demag_aux_cache_token = token
@@ -89,6 +91,7 @@ class SimulationDemagAuxiliaryMixin:
         boundary_faces: list[tuple[int, tuple[int, int, int]]],
         m: np.ndarray,
         ms_values: np.ndarray,
+        volume_charge_scales: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         with self._record_active_subfield_array_timing_block(
             "demag_auxiliary:assemble_fem",
@@ -98,6 +101,7 @@ class SimulationDemagAuxiliaryMixin:
                 simplices,
                 m,
                 ms_values,
+                volume_charge_scales,
             )
         with self._record_active_subfield_array_timing_block("demag_auxiliary:rho_box"):
             rho = self._scalar_cofield_to_legacy_boxed_field(

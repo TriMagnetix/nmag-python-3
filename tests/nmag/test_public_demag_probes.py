@@ -123,6 +123,7 @@ def test_demag_saved_rho_uses_legacy_simulation_volume_normalization(tmp_path, m
         simplices,
         np.asarray(sim._fields["m"], dtype=float),
         ms_values,
+        np.ones(len(simplices), dtype=float),
     )
 
     np.testing.assert_allclose(rho, weak_divergence / 1.0e-27)

@@ -15,6 +15,7 @@ class SimulationMeshMaterialMixin:
         _volume_average_node_weights_cache: Any | None
         _incident_cell_volume_sums_cache: Any | None
         _demag_ms_values_cache: Any | None
+        _demag_volume_charge_scales_cache: Any | None
         _nodal_ms_values_cache: Any | None
 
         def __getattr__(self, name: str) -> Any: ...
@@ -233,6 +234,31 @@ class SimulationMeshMaterialMixin:
         ms_values = ms_lookup[inverse]
         self._demag_ms_values_cache = (token, ms_values)
         return ms_values
+
+    def _simplex_volume_charge_scales(self, regions: Sequence[int]) -> np.ndarray:
+        token = self._mesh_geometry_token()
+        self._ensure_demag_geometry_cache_token(token)
+        if self._demag_volume_charge_scales_cache is not None:
+            cached_token, cached_values = self._demag_volume_charge_scales_cache
+            if cached_token == token and len(cached_values) == len(regions):
+                return cached_values
+
+        region_ids = np.asarray(regions, dtype=int)
+        if region_ids.size == 0:
+            scales = np.zeros(0, dtype=float)
+        else:
+            unique_region_ids, inverse = np.unique(region_ids, return_inverse=True)
+            scale_lookup = np.asarray(
+                [
+                    float(self._simplex_material(int(region)).scale_volume_charges)
+                    for region in unique_region_ids
+                ],
+                dtype=float,
+            )
+            scales = scale_lookup[inverse]
+
+        self._demag_volume_charge_scales_cache = (token, scales)
+        return scales
 
     def _nodal_ms_values(self) -> np.ndarray:
         if self.mesh is None:

@@ -151,6 +151,7 @@ class Simulation(
             tuple[np.ndarray, np.ndarray, ScipyLUFactorization] | None
         ) = None
         self._demag_ms_values_cache: tuple[int, np.ndarray] | None = None
+        self._demag_volume_charge_scales_cache: tuple[int, np.ndarray] | None = None
         self._nodal_ms_values_cache: tuple[int, np.ndarray] | None = None
         self._demag_aux_cache_token: tuple[int, int] | None = None
         self._demag_phi_cache: np.ndarray | None = None

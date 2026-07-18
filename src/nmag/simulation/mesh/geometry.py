@@ -34,6 +34,7 @@ class SimulationMeshGeometryMixin:
             self._demag_gauge_factorization_cache = None
             self._demag_dirichlet_factorization_cache = None
             self._demag_ms_values_cache = None
+            self._demag_volume_charge_scales_cache = None
             self._nodal_ms_values_cache = None
             self._mesh_points_cache = None
             self._mesh_bounds_cache = None
@@ -140,5 +141,6 @@ class SimulationMeshGeometryMixin:
         self._demag_bem_cache = None
         self._demag_fem_geometry_cache = None
         self._demag_ms_values_cache = None
+        self._demag_volume_charge_scales_cache = None
         self._nodal_ms_values_cache = None
         self._nodal_material_coefficients_cache = None

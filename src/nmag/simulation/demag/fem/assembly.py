@@ -9,6 +9,7 @@ from ....backends import (
     _selected_demag_fem_assembly_backend,
 )
 from ...support import _simulation_compatibility_binding
+from .charges import volume_charge_scaling_correction
 
 
 class SimulationDemagFemAssemblyMixin:
@@ -22,6 +23,7 @@ class SimulationDemagFemAssemblyMixin:
         simplices: np.ndarray,
         m: np.ndarray,
         ms_values: np.ndarray,
+        volume_charge_scales: np.ndarray,
     ) -> tuple[Any, np.ndarray, np.ndarray]:
         point_count = len(points)
         stiffness, gradients_by_cell, volumes = self._demag_fem_geometry_for_mesh(
@@ -52,6 +54,15 @@ class SimulationDemagFemAssemblyMixin:
                     ms_values,
                     point_count,
                 )
+            divergence += volume_charge_scaling_correction(
+                simplices,
+                gradients_by_cell,
+                volumes,
+                m,
+                ms_values,
+                volume_charge_scales,
+                point_count,
+            )
         return stiffness, divergence, volumes
 
     def _assemble_demag_fem_divergence_python(

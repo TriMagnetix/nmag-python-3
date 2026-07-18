@@ -125,6 +125,7 @@ def test_demag_fem_assembly_rust_backend_matches_python(tmp_path, monkeypatch):
         simplices,
         m,
         ms_values,
+        np.ones(len(simplices), dtype=float),
     )
 
     np.testing.assert_allclose(selected_stiffness, stiffness, rtol=1e-12, atol=1e-20)
@@ -180,4 +181,3 @@ def test_demag_fem_geometry_rust_backend_rejects_degenerate_cells(monkeypatch):
     simplices = np.asarray(mesh.simplices, dtype=int)
     with pytest.raises(ValueError, match=r"invalid cell indices: \[1\]"):
         sim._demag_fem_geometry_for_mesh_rust(points, simplices)
-

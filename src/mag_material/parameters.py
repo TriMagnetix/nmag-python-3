@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
@@ -103,6 +104,13 @@ def resolve_material_parameters(
     scale_volume_charges: float,
 ) -> MaterialParameters:
     """Apply legacy defaults and reject invalid material constructor values."""
+    try:
+        resolved_volume_charge_scale = float(scale_volume_charges)
+    except (TypeError, ValueError) as error:
+        raise TypeError("scale_volume_charges must be a finite real number.") from error
+    if not math.isfinite(resolved_volume_charge_scale):
+        raise ValueError("scale_volume_charges must be finite.")
+
     resolved_anisotropy, resolved_order = _resolve_anisotropy(anisotropy, anisotropy_order)
     parameters = MaterialParameters(
         ms=SI(0.86e6, "A/m") if ms is None else ms,
@@ -116,7 +124,7 @@ def resolve_material_parameters(
         anisotropy=resolved_anisotropy,
         anisotropy_order=resolved_order,
         properties=["magnetic", "material"] if properties is None else properties,
-        scale_volume_charges=scale_volume_charges,
+        scale_volume_charges=resolved_volume_charge_scale,
     )
     _validate_units(name, parameters)
     if parameters.exchange < 0.0:
