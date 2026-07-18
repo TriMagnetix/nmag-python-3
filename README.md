@@ -198,7 +198,14 @@ override that resource guard. A 540-node sphere with 1,620 magnetization state
 values is included in the validated range; dense time and memory growth still
 make this backend best suited to meshes that fit the available machine.
 
-For larger meshes or memory-constrained machines, select the low-memory path:
+For larger meshes, automatic demagnetization storage uses a certified hierarchy
+when a dense boundary matrix no longer fits the configured memory budget and
+the Rust accelerator is available. The hierarchy preserves exact near-field
+blocks, compresses separated interactions, and checks its result against exact
+Lindholm entries before use. Failed certification or a construction budget
+overrun falls back to the exact matrix-free operator.
+
+Select the fully low-memory path explicitly with:
 
 ```bash
 NMAG_MEMORY_MODE=low python simulation.py
@@ -206,8 +213,7 @@ NMAG_MEMORY_MODE=low python simulation.py
 
 This uses sparse CSR FEM matrices, iterative scalar-potential solves, and an
 exact matrix-free Lindholm BEM action. It preserves the same discretized model
-while trading additional computation for lower memory use. The optional Rust
-accelerator substantially reduces matrix-free BEM time. SciPy DOP853 remains
+while trading additional computation for lower memory use. SciPy DOP853 remains
 the dynamics integrator because the current Diffsol backend constructs a dense
 affine operator and is incompatible with low-memory mode.
 
@@ -219,10 +225,10 @@ fields, pinning, Zhang-Li current torque, adaptive dynamics and relaxation,
 native checkpoints, and NDT/HDF5 output. The optional Rust accelerator runs
 the same supported model as the Python paths.
 
-The main gaps are anisotropy, thermal and Slonczewski physics, periodic/HLib
-demag, shared-node material-specific magnetization and local coupling, and
-full legacy hysteresis compatibility. The low-memory demag path avoids dense
-boundary storage but can still be slow on very large meshes.
+The main gaps are anisotropy, thermal and Slonczewski physics, periodic and
+custom `phi_BEM` demag, shared-node material-specific magnetization and local
+coupling, and full legacy hysteresis compatibility. Exact matrix-free demag
+avoids dense boundary storage but can still be slow on difficult geometries.
 
 ## Mesh Formats
 
@@ -286,6 +292,7 @@ config = nmag.NmagConfig(
     output_directory=Path("results"),
     output_policy="error",
     accelerator="auto",
+    demag_bem_storage="auto",
     accelerator_overrides={nmag.RustKernel.LLG: "rust"},
 )
 simulation = nmag.Simulation(config=config)
@@ -299,7 +306,7 @@ does not restore physical state; use `load_restart_file()` explicitly for that.
 For a simulation created without an explicit config only,
 `NMAG_ACCELERATOR=auto|off|rust` selects the default accelerator mode. An
 explicit `NmagConfig` always wins. The former per-kernel `NMAG_*_BACKEND`
-variables are no longer supported. Expert callers can use
+Rust selection variables are no longer supported. Expert callers can use
 `accelerator_overrides` with `RustKernel` values as shown above. Diffsol is an
 explicit `integrator_backend="diffsol"` configuration and is never selected by
 the global accelerator mode.
@@ -308,18 +315,45 @@ Memory and storage selectors are:
 
 - `NMAG_MEMORY_MODE=auto|low`
 - `NMAG_DEMAG_FEM_MATRIX_BACKEND=auto|dense|sparse`
-- `NMAG_DEMAG_BEM_STORAGE_BACKEND=auto|dense|matrix-free`
+- `NMAG_DEMAG_BEM_STORAGE_BACKEND=auto|dense|hierarchical|matrix-free`
 - `NMAG_DEMAG_LINEAR_SOLVER_BACKEND=auto|numpy|scipy`
 
-There is no default point-count rejection. When current host/container memory
-can be measured, auto mode keeps dense FEM and BEM storage while each
-conservative estimate remains within 20% of available memory, then switches to
-sparse FEM or matrix-free BEM. If memory cannot be measured, 2,048 volume or
+There is no default point-count rejection. Auto mode keeps dense BEM storage
+while its estimate is within 20% of available memory, then uses hierarchical
+storage when Rust is available or exact matrix-free storage otherwise. Sparse
+FEM is selected independently. If memory cannot be measured, 2,048 volume or
 boundary points is the conservative fallback crossover. Override those fallback counts with
 `NMAG_DEMAG_FEM_AUTO_SPARSE_MIN_POINTS` and
 `NMAG_DEMAG_BEM_AUTO_MATRIX_FREE_MIN_BOUNDARY_NODES`. Explicit dense selection
 is retained as the reference backend; `NMAG_DEMAG_DENSE_MAX_POINTS` is an
 optional user-defined safety cap rather than a built-in limitation.
+
+Tune hierarchy accuracy and resources with a frozen nested configuration:
+
+```python
+config = nmag.NmagConfig(
+    demag_bem_storage="hierarchical",
+    hierarchical_bem=nmag.HierarchicalBemConfig(
+        relative_tolerance=1e-6,
+        admissibility_eta=2.0,
+        leaf_size=32,
+        max_rank=128,
+        validation_vectors=4,
+        validation_rows=64,
+        memory_fraction=0.20,
+    ),
+)
+```
+
+`simulation.last_bem_operator_stats` reports the effective backend, fallback
+reason, setup time, stored and dense-equivalent bytes, block and rank counts,
+compression ratio, and sampled certification error. Hierarchies are tied to
+mesh geometry and rebuilt after geometry changes or process restart; checkpoint
+files intentionally do not serialize them. The hierarchical operator keeps
+near-field Lindholm blocks exact, compresses only separated interactions, and
+certifies the completed action against exact entries. A failed accuracy or
+memory check discards it and uses exact matrix-free BEM. Setting
+`accelerator="rust"` remains strict about the Rust extension being installed.
 
 Sparse FEM systems use normalized iterative SciPy solves. Dense auto mode uses
 reusable SciPy LU factorizations for systems with at least 128 points and keeps
