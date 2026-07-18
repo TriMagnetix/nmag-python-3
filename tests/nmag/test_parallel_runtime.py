@@ -76,3 +76,46 @@ print(hashlib.sha256(np.asarray(result).tobytes()).hexdigest())
         digests.append(completed.stdout.strip())
 
     assert digests[0] == digests[1]
+
+
+def test_serial_and_parallel_hmatrix_matvec_are_bitwise_identical() -> None:
+    pytest.importorskip("nmag_accel")
+    script = """
+import hashlib
+import numpy as np
+import nmag_accel
+from scipy.spatial import ConvexHull
+n = 200
+i = np.arange(n, dtype=float)
+z = 1.0 - 2.0 * (i + 0.5) / n
+r = np.sqrt(1.0 - z * z)
+a = np.pi * (3.0 - np.sqrt(5.0)) * i
+surface = np.column_stack((r * np.cos(a), r * np.sin(a), z))
+points = np.vstack((surface, np.zeros((1, 3))))
+faces = np.asarray(ConvexHull(surface).simplices, dtype=np.int64)
+simplices = np.column_stack((faces, np.full(len(faces), n, dtype=np.int64)))
+faces = np.asarray(nmag_accel.build_oriented_boundary_faces(points, simplices)[1], dtype=np.int64)
+boundary_nodes = np.unique(faces)
+local_indices = np.full(len(points), -1, dtype=np.int64)
+local_indices[boundary_nodes] = np.arange(len(boundary_nodes), dtype=np.int64)
+operator = nmag_accel.build_lindholm_hmatrix(
+    points, simplices, faces, boundary_nodes, local_indices, memory_budget_bytes=64 * 1024 * 1024
+)
+result = operator.matvec(np.random.default_rng(17).standard_normal(n))
+print(hashlib.sha256(np.asarray(result).tobytes()).hexdigest())
+"""
+
+    digests = []
+    for thread_count in (1, 4):
+        environment = os.environ.copy()
+        environment["RAYON_NUM_THREADS"] = str(thread_count)
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        digests.append(completed.stdout.strip())
+
+    assert digests[0] == digests[1]
