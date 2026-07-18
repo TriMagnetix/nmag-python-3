@@ -21,6 +21,22 @@ fi
 VENV_PYTHON="$VENV_DIR/bin/python"
 "$VENV_PYTHON" -m pip install --upgrade pip
 
+require_python_development_library() {
+    local library_path dev_package
+    library_path=$("$VENV_PYTHON" -c 'import os, sysconfig; print(os.path.join(sysconfig.get_config_var("LIBDIR") or "", sysconfig.get_config_var("LDLIBRARY") or ""))')
+
+    # PyO3 links the accelerator against libpython.  Runtime Python packages
+    # commonly provide only libpythonX.Y.so.1.0; the unversioned linker name is
+    # supplied by the matching development package.
+    if [[ -z "$library_path" || ! -e "$library_path" ]]; then
+        dev_package=$("$VENV_PYTHON" -c 'import sys; print(f"libpython{sys.version_info.major}.{sys.version_info.minor}-dev")')
+        printf 'Python development library not found: %s\n' "$library_path" >&2
+        printf 'The Rust accelerator needs the matching development package. On Debian/Ubuntu run:\n' >&2
+        printf '  sudo apt install %s\n' "$dev_package" >&2
+        exit 1
+    fi
+}
+
 build_accelerator=${NMAG_SETUP_ACCELERATOR:-}
 if [[ -z "$build_accelerator" && -t 0 ]]; then
     read -r -p 'Build the optional Rust accelerator? [y/N] ' build_accelerator
@@ -32,6 +48,7 @@ case "${build_accelerator,,}" in
             printf 'Rust is required for the accelerator. Install it with rustup, then rerun setup.\n' >&2
             exit 1
         fi
+        require_python_development_library
         # rustup installs `cargo` as a proxy.  On machines without a configured
         # default toolchain, selecting one explicitly keeps maturin and the
         # subsequent build/check commands from failing before Rust starts.

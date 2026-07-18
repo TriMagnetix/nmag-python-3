@@ -15,13 +15,21 @@ Nmag when introducing a new geometry or material configuration.
 - Linux
 - Python 3.10 or newer
 - A C compiler for Python packages that do not have a wheel for your platform
-- Rust only when building the optional native accelerators
+- Rust and the matching Python development library only when building the
+  optional native accelerators
 
 On Ubuntu or Debian:
 
 ```bash
 sudo apt update
 sudo apt install python3 python3-venv python3-pip build-essential
+```
+
+To build the accelerator with Python 3.12, also install its development
+library:
+
+```bash
+sudo apt install libpython3.12-dev
 ```
 
 ## Installation
