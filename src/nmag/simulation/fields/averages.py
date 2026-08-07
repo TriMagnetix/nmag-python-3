@@ -21,6 +21,18 @@ class SimulationFieldAverageMixin:
         def __getattr__(self, name: str) -> Any: ...
 
     def get_subfield_average(self, subfieldname: str, mat_name: str | None = None) -> Any:
+        """Return the volume-weighted average of an available field.
+
+        Args:
+            subfieldname: Field name, for example ``m``, ``H_total``, or
+                ``E_demag``.
+            mat_name: Restrict integration to tetrahedra belonging to this
+                material. Omit it for the complete magnetic volume.
+
+        Returns:
+            A scalar or component list, or ``None`` when the requested derived
+            quantity is not available for the current model.
+        """
         timings: dict[str, float] = {}
         self.last_subfield_average_timings_seconds = {}
         total_started = time.perf_counter()

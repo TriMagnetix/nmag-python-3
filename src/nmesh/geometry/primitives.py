@@ -336,7 +336,17 @@ class MeshObject:
 
 
 class Box(MeshObject):
-    """Axis-aligned box defined by two opposite corners."""
+    """Create a box from two opposite corners.
+
+    Args:
+        p1: First corner coordinates.
+        p2: Opposite corner coordinates.
+        transform: Optional transformation steps applied in order.
+        fixed: Extra fixed mesher points.
+        mobile: Extra mobile mesher points.
+        system_coords: Apply transformations in system coordinates when true.
+        use_fixed_corners: Add every box corner as a fixed mesher point.
+    """
 
     def __init__(
         self,
@@ -361,7 +371,15 @@ class Box(MeshObject):
 
 
 class Ellipsoid(MeshObject):
-    """Ellipsoid with principal radii aligned to the coordinate axes."""
+    """Create an axis-aligned ellipsoid from its principal radii.
+
+    Args:
+        lengths: Positive radius along each coordinate axis.
+        transform: Optional transformation steps applied in order.
+        fixed: Extra fixed mesher points.
+        mobile: Extra mobile mesher points.
+        system_coords: Apply transformations in system coordinates when true.
+    """
 
     def __init__(
         self,
@@ -378,7 +396,18 @@ class Ellipsoid(MeshObject):
 
 
 class Conic(MeshObject):
-    """Conical frustum defined by two centres and their radii."""
+    """Create a conical frustum from two centers and radii.
+
+    Args:
+        c1: First end center.
+        r1: Non-negative first-end radius.
+        c2: Second end center.
+        r2: Non-negative second-end radius.
+        transform: Optional transformation steps applied in order.
+        fixed: Extra fixed mesher points.
+        mobile: Extra mobile mesher points.
+        system_coords: Apply transformations in system coordinates when true.
+    """
 
     def __init__(
         self,

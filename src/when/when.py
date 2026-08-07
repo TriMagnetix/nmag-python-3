@@ -261,11 +261,10 @@ class _NeverSpec(_WhenSpec):
 
 
 class When:
-    """
-    Class used to express when a certain thing should be done.
+    """Combine a schedule condition with ``|`` or ``&`` operators.
 
-    This class is a wrapper around a 'spec' object that implements
-    the actual logic.
+    Users normally create instances with :func:`at` and :func:`every` rather
+    than calling this constructor directly.
     """
 
     def __init__(self, spec: _WhenSpec) -> None:
@@ -278,18 +277,22 @@ class When:
         return repr(self.spec)
 
     def match_time(self, this_time: TimeDict) -> bool:
-        """Checks if the specification matches the given time."""
+        """Return whether this condition matches a simulation clock mapping."""
         return self.spec.match_time(this_time)
 
     def next_time(
         self, identifier: str, this_time: TimeDict, tols: dict[str, Any] | None = None
     ) -> NextTime:
-        """
-        Calculates the next matching time for the given identifier.
+        """Return the next match for one clock identifier.
 
-        The 'tols' argument is used to apply a tolerance to prevent
-        re-triggering at the exact same time due to floating point
-        inaccuracies.
+        Args:
+            identifier: Clock key such as ``step``, ``time``, or ``stage_time``.
+            this_time: Current clock-like mapping.
+            tols: Optional per-identifier tolerance preventing a floating-point
+                boundary from triggering repeatedly.
+
+        Returns:
+            Next matching value or a boolean sentinel used by schedule merging.
         """
         nt = self.spec.next_time(identifier, this_time)
 
@@ -331,9 +334,15 @@ class When:
 
 
 def at(identifier: str, value: Any = True) -> When:
-    """
-    Specifies an action at an exact point in time.
-    Examples: at('convergence'), at('step', 10)
+    """Create a condition matching one exact clock value or event.
+
+    Args:
+        identifier: Clock key or event such as ``"step"``, ``"time"``,
+            ``"convergence"``, or ``"stage_end"``.
+        value: Exact value to match. Boolean events default to true.
+
+    Returns:
+        Schedule condition, for example ``at("step", 10)``.
     """
     return When(_AtSpec(identifier, value))
 
@@ -344,12 +353,22 @@ def every(
     first: Any = 0.0,
     last: Any | None = None,
 ) -> When:
-    """
-    Specifies an action that should be performed periodically.
-    Examples:
-      every('step', 10)
-      every('step', 5, first=10, last=100)
-      every(10, 'step')  # Legacy support, should not be used
+    """Create a periodic clock condition.
+
+    Args:
+        arg1: Preferred clock identifier, such as ``"step"`` or ``"time"``.
+            A legacy delta-first call is also accepted.
+        arg2: Positive interval in clock units, or the identifier in the legacy
+            argument order.
+        first: First value eligible to match.
+        last: Optional final eligible value; it must exceed ``first``.
+
+    Returns:
+        Periodic condition, for example ``every("step", 10)``.
+
+    Raises:
+        ValueError: If no identifier is supplied, the interval is non-positive,
+            or the requested range is invalid.
     """
 
     identifier: str | None = None

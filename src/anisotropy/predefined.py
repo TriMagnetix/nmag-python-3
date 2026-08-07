@@ -21,7 +21,21 @@ def uniaxial_anisotropy(
     K1: EnergyDensity,
     K2: EnergyDensity = 0.0,
 ) -> PredefinedAnisotropy:
-    """Return ``E = -K1 (a.m)^2 - K2 (a.m)^4``."""
+    """Create a uniaxial anisotropy energy model.
+
+    The energy density is ``-K1 (axis·m)^2 - K2 (axis·m)^4``.
+
+    Args:
+        axis: Three-component easy-axis direction; normalized internally.
+        K1: Second-order coefficient as J/m³ or a compatible SI quantity.
+        K2: Fourth-order coefficient as J/m³ or a compatible SI quantity.
+
+    Returns:
+        Vectorized predefined anisotropy with analytic gradient evaluation.
+
+    Raises:
+        ValueError: If the axis is zero or a coefficient is non-finite.
+    """
 
     normalized_axis = _normalize(axis)
     k1 = _constant(K1, "K1")
@@ -75,7 +89,21 @@ def cubic_anisotropy(
     K2: EnergyDensity = 0.0,
     K3: EnergyDensity = 0.0,
 ) -> PredefinedAnisotropy:
-    """Return the conventional fourth-, sixth-, and eighth-order cubic energy."""
+    """Create conventional fourth-, sixth-, and eighth-order cubic anisotropy.
+
+    Args:
+        axis1: First crystalline axis; normalized internally.
+        axis2: Second crystalline axis, required to be orthogonal to ``axis1``.
+        K1: Fourth-order coefficient as J/m³ or a compatible SI quantity.
+        K2: Sixth-order coefficient as J/m³ or a compatible SI quantity.
+        K3: Eighth-order coefficient as J/m³ or a compatible SI quantity.
+
+    Returns:
+        Vectorized predefined anisotropy with analytic gradient evaluation.
+
+    Raises:
+        ValueError: If axes are invalid or coefficients are non-finite.
+    """
 
     first = _normalize(axis1)
     raw_second = np.asarray(axis2, dtype=np.float64)

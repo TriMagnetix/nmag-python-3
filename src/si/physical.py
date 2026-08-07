@@ -426,30 +426,26 @@ def _pint_unit(unit: str) -> Any:
 
 
 class Physical:
-    """
-    A wrapper class around the pint library to provide backward compatibility
-    with a legacy Physical quantity class.
+    """Represent a numeric value with checked physical dimensions.
 
-    It supports initialization with a value and a unit string, or a value
-    and a list-based dimension format (e.g., ['m', 1, 's', -1]).
-    All arithmetic and comparison operations are handled by the underlying
-    pint.Quantity object.
+    ``nmag.SI`` is an alias for this class and is the preferred spelling in
+    simulation scripts. Common units use a lightweight internal representation;
+    other units are delegated to Pint without changing the public behavior.
+
+    Args:
+        value: Numeric magnitude, another compatible quantity, a unit string
+            such as ``"A/m"``, or a complete quantity string.
+        dimensions: Unit string, legacy ``[unit, power, ...]`` list, or ``None``.
+
+    Raises:
+        TypeError: If the value or dimensions form is unsupported.
+        ValueError: If a legacy dimensions list is malformed.
     """
 
     _quantity: Any
 
     def __init__(self, value: Any, dimensions: Any | None = None) -> None:
-        """
-        Creates a Physical object.
-
-        :param value: The magnitude of the quantity. Can also be a pint.Quantity
-                      object, or a string like "10 m/s".
-        :param dimensions: The units of the quantity. Can be a string
-                           (e.g., "m/s", "J/mol"), a list of units and
-                           their powers (e.g., ['m', 1, 's', -1]), or None.
-                           If None and value is a string, value will be parsed
-                           as the quantity.
-        """
+        """Create a dimensionally checked quantity."""
         fast_quantity = self._fast_quantity(value, dimensions)
         if fast_quantity is not None:
             self._quantity = fast_quantity
@@ -546,16 +542,13 @@ class Physical:
 
     @property
     def magnitude(self) -> Any:
-        """Returns the numerical magnitude of the quantity."""
+        """Return the numeric magnitude in the quantity's stored unit."""
         return self._quantity.magnitude
 
     value = magnitude  # Alias for backward compatibility
 
     def dens_str(self) -> str:
-        """
-        Provide a dense string describing the object, similar to the original class.
-        Example: <1e+06A/m>
-        """
+        """Return a compact legacy-compatible representation such as ``<A/m>``."""
         # Handle the special case for a dimensionless quantity of 1.0
         if self._quantity.dimensionless and self._quantity.magnitude == 1.0:
             return "<1>"
@@ -574,15 +567,18 @@ class Physical:
         return f"<{cleaned_str}>"
 
     def in_units_of(self, unit_quantity: object) -> float:
-        """
-        Expresses the object in multiples of 'unit_quantity' and returns the
-        resulting magnitude as a float.
+        """Return the magnitude expressed in multiples of another quantity.
 
-        This is equivalent to performing a division and taking the magnitude
-        of the dimensionless result.
+        Args:
+            unit_quantity: A :class:`Physical` representing one requested unit,
+                for example ``nmag.SI(1, "A/m")``.
 
-        :param unit_quantity: Another Physical object whose units to convert to.
-        :return: A float representing the magnitude in the new units.
+        Returns:
+            Numeric magnitude in the requested unit.
+
+        Raises:
+            TypeError: If ``unit_quantity`` is not a :class:`Physical`.
+            DimensionalityError: If the dimensions are incompatible.
         """
         if not isinstance(unit_quantity, Physical):
             raise TypeError("Argument must be an instance of Physical.")

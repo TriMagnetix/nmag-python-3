@@ -1,0 +1,102 @@
+site_name: Nmag for Python 3
+site_description: Human-readable documentation for the Nmag micromagnetic simulation interface
+site_url: https://trimagnetix.github.io/nmag-python-3/
+repo_url: https://github.com/TriMagnetix/nmag-python-3
+repo_name: TriMagnetix/nmag-python-3
+edit_uri: edit/mvp/docs/
+copyright: Copyright © TriMagnetix and the Nmag contributors
+strict: true
+
+theme:
+  name: material
+  icon:
+    logo: material/vector-triangle
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+      - Sphere tutorial: getting-started/sphere.md
+  - User guide:
+      - Simulation workflow: guides/simulation-workflow.md
+      - Meshes: guides/meshes.md
+      - Units, materials, and anisotropy: guides/materials.md
+      - Dynamics and relaxation: guides/dynamics.md
+      - Fields, output, and restarts: guides/output.md
+      - Configuration and performance: guides/configuration.md
+      - Supported scope and limitations: guides/supported-scope.md
+      - Migrating from legacy Nmag: guides/migration.md
+  - API reference:
+      - Simulation: reference/simulation.md
+      - Materials and units: reference/materials.md
+      - Configuration and diagnostics: reference/configuration.md
+      - Meshes: reference/meshes.md
+      - Scheduling: reference/scheduling.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            heading_level: 2
+            inherited_members: true
+            members_order: source
+            merge_init_into_class: true
+            separate_signature: true
+            show_bases: false
+            show_root_full_path: false
+            show_root_heading: true
+            show_signature_annotations: true
+            show_source: false
+            signature_crossrefs: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: .
+      check_paths: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+watch:
+  - src

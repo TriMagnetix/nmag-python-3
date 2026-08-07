@@ -26,6 +26,15 @@ class NodalMaterialCoefficients:
 
 @dataclass(slots=True)
 class IntegratorConfig:
+    """Snapshot of effective public DOP853 controls.
+
+    Attributes:
+        relative_tolerance: Relative local-error tolerance.
+        absolute_tolerance: Absolute local-error tolerance.
+        maximum_step_seconds: Configured upper step bound in seconds.
+        exact_tstop: Whether fixed-time requests normally stop exactly.
+    """
+
     relative_tolerance: float = 1.0e-6
     absolute_tolerance: float = 1.0e-6
     maximum_step_seconds: float = 1.0e-12
@@ -43,6 +52,23 @@ class IntegratorConfig:
 
 @dataclass(frozen=True, slots=True)
 class IntegratorStats:
+    """Measurements from the most recent integration operation.
+
+    Attributes:
+        accepted_steps: Accepted adaptive steps.
+        rhs_evaluations: Landau-Lifshitz-Gilbert right-hand-side evaluations.
+        rejected_steps: Rejected steps when the backend reports them.
+        failed: Whether the operation raised a numerical failure.
+        status: Backend status at completion.
+        last_step_seconds: Size of the final accepted step.
+        simulated_seconds: Physical time advanced by the operation.
+        wall_seconds: Elapsed wall-clock time.
+        jacobian_vector_evaluations: Optional implicit-backend measurement.
+        nonlinear_iterations: Optional implicit-backend Newton iterations.
+        nonlinear_failures: Optional implicit-backend failure count.
+        linear_solver_setups: Optional implicit-backend setup count.
+    """
+
     accepted_steps: int = 0
     rhs_evaluations: int = 0
     rejected_steps: int | None = None

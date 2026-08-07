@@ -10,6 +10,7 @@ htmlcov/
 target/
 build/
 dist/
+site/
 .eggs/
 .mypy_cache/
 .pytype/

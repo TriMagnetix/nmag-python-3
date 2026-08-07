@@ -83,10 +83,28 @@ class Simulation(
     SimulationDynamicsMixin,
     SimulationRestartMixin,
 ):
-    """Public finite-element simulation API for the Python 3 rewrite.
+    """Own a finite-element micromagnetic simulation and its output lifecycle.
 
-    The class owns mesh/material bookkeeping, fields, dense first-order FEM/BEM
-    demagnetization, anisotropy, and adaptive LLG relaxation.
+    A simulation is configured once, then receives a tetrahedral mesh, material
+    mapping, magnetization, and applied fields. Field calculations are lazy;
+    saving, probing, time advancement, or relaxation computes what is needed.
+
+    Args:
+        name: Base name for NDT, HDF5, and default checkpoint files. When
+            omitted, use ``config.default_name``.
+        phi_BEM: Reserved legacy HLib option. Non-null values are unsupported.
+        periodic_bc: Reserved legacy periodic-boundary option. Non-null values
+            are unsupported.
+        do_demag: Calculate demagnetization fields and energies when true.
+        do_sl_stt: Reserved for Slonczewski spin-transfer torque, which is not
+            implemented. Zhang-Li torque is configured through material
+            parameters and :meth:`set_current_density`.
+        config: Immutable output, acceleration, storage, and integrator policy.
+            Environment defaults are read only when this argument is omitted.
+
+    Raises:
+        NotImplementedError: If an unsupported legacy constructor option is
+            requested.
     """
 
     def __init__(
@@ -241,7 +259,27 @@ class Simulation(
         do_reorder: bool = False,
         manual_distribution: Any = None,
     ) -> nmesh.Mesh:
-        """Load a mesh and register magnetic materials by region name."""
+        """Load a mesh, scale it to metres, and map its regions to materials.
+
+        Args:
+            filename: Legacy Nmesh or Meshio-supported mesh file.
+            region_names_and_mag_mats: ``(region_name, material)`` pairs in
+                ascending mesh-region order, starting at region 1.
+            unit_length: Physical length represented by one mesh coordinate
+                unit.
+            do_reorder: Request legacy node reordering. Reordering is currently
+                unsupported by the mesh backend.
+            manual_distribution: Reserved legacy distributed-mesh mapping.
+
+        Returns:
+            The loaded and physically scaled mesh.
+
+        Raises:
+            RuntimeError: If a mesh has already been loaded.
+            ValueError: If mesh regions and configured materials do not match.
+            NotImplementedError: If reordering or manual distribution is
+                requested by an unsupported backend.
+        """
         if self.mesh is not None:
             raise RuntimeError("Mesh is already present.")
 
@@ -289,7 +327,20 @@ class Simulation(
         return self.mesh
 
     def set_m(self, values: Vector | VectorField, subfieldname: str | None = None) -> None:
-        """Set the normalised magnetisation field."""
+        """Set and normalize the nodal magnetization direction field.
+
+        Args:
+            values: One three-component vector, one vector per mesh node, or a
+                callable receiving a physical node position in metres.
+            subfieldname: Reserved legacy material-subfield selector. Omit it;
+                material-specific magnetization degrees of freedom are not
+                implemented.
+
+        Raises:
+            RuntimeError: If no mesh has been loaded.
+            ValueError: If a vector is zero or the field shape is invalid.
+            NotImplementedError: If ``subfieldname`` is supplied.
+        """
         if subfieldname is not None:
             raise NotImplementedError("Material-specific m subfields are not ported yet.")
 
@@ -311,16 +362,29 @@ class Simulation(
         self._invalidate_integrator()
 
     def set_H_ext(self, values: Vector, unit: SI | None = None) -> None:
-        """Set a homogeneous external magnetic field in SI A/m."""
+        """Set the homogeneous applied magnetic field.
+
+        Args:
+            values: Three field components. When ``unit`` is omitted, values
+                may be SI quantities; otherwise they are interpreted in
+                ``unit``.
+            unit: Unit compatible with A/m.
+        """
         self._fields["H_ext"] = np.asarray(_as_vector3(values, unit=unit), dtype=float)
         self._invalidate_demag()
         self._invalidate_integrator()
 
     def set_pinning(self, values: ScalarFieldInput) -> None:
-        """Set the nodal multiplier for the complete magnetisation derivative.
+        """Set the nodal multiplier for the complete magnetization derivative.
 
-        A value of one leaves a node free and zero fixes its magnetisation.
-        Other finite values retain legacy Nmag's local-rate scaling semantics.
+        Args:
+            values: Uniform scalar, one value per mesh node, or a callable
+                receiving physical node positions in metres. Zero pins a node,
+                one leaves it free, and other finite values scale its rate.
+
+        Raises:
+            RuntimeError: If no mesh has been loaded.
+            ValueError: If values are non-finite or have the wrong shape.
         """
         if self.mesh is None:
             raise RuntimeError("A mesh must be loaded before setting pinning.")
@@ -336,7 +400,18 @@ class Simulation(
         values: VectorFieldInput,
         unit: SI | None = None,
     ) -> None:
-        """Set the electric-current-density field used by spin-transfer torque."""
+        """Set the current-density field used by Zhang-Li spin-transfer torque.
+
+        Args:
+            values: Uniform vector, nodal vectors, or a callable receiving
+                physical node positions in metres.
+            unit: Unit compatible with A/m². Required for ordinary numeric
+                vectors unless values already carry SI dimensions.
+
+        Raises:
+            RuntimeError: If no mesh has been loaded.
+            ValueError: If the field shape or dimensions are invalid.
+        """
         if self.mesh is None:
             raise RuntimeError("A mesh must be loaded before setting current density.")
         self._fields["current_density"] = _vector_nodal_field(
@@ -351,7 +426,14 @@ class Simulation(
     def save_data(
         self, fields: str | list[str] | None = None, avoid_same_step: bool = False
     ) -> None:
-        """Save averages and optionally stored spatial fields."""
+        """Append averaged data and optionally save spatial fields.
+
+        Args:
+            fields: ``None`` for averages only, ``"all"`` for every available
+                field, or a list of field names to store spatially in HDF5.
+            avoid_same_step: Skip the save when this integrator step was already
+                written. Primarily used by scheduled actions.
+        """
         if avoid_same_step and self.step == self.writer._last_saved_step:
             return
         self.clock.id += 1
@@ -360,7 +442,15 @@ class Simulation(
         self.last_save_timings_seconds = dict(self.writer.last_save_timings_seconds)
 
     def save_spatial_fields(self, filename: str, fieldnames: list[str]) -> None:
-        """Write available spatial fields to a compact HDF5 file."""
+        """Write selected spatial fields and mesh points to an HDF5 file.
+
+        Existing datasets with the same field names are replaced inside the
+        file; unrelated groups and datasets are retained.
+
+        Args:
+            filename: Destination HDF5 path.
+            fieldnames: Available field names such as ``m`` or ``H_demag``.
+        """
         timings: dict[str, float] = {}
         total_started = time.perf_counter()
         try:
@@ -400,9 +490,30 @@ class Simulation(
         pos: Sequence[float],
         unit: SI | None = None,
     ) -> Any:
+        """Probe a field at a physical position.
+
+        Args:
+            subfieldname: Field to sample.
+            pos: Three coordinates in metres.
+            unit: Reserved compatibility argument. Returned values use the
+                field's standard SI representation.
+
+        Returns:
+            Interpolated SI components, or ``None`` when the position is
+            outside the mesh.
+        """
         return self.probe_subfield_siv(subfieldname, pos, unit=unit)
 
     def save_mesh(self, filename: str) -> None:
+        """Save the currently loaded, physically scaled mesh.
+
+        Args:
+            filename: Destination path. The suffix selects Nmesh HDF5, Nmesh
+                ASCII, or a Meshio-supported format.
+
+        Raises:
+            RuntimeError: If no mesh has been loaded.
+        """
         if self.mesh is None:
             raise RuntimeError("No mesh has been loaded.")
         nmesh.save(self.mesh, filename)

@@ -1,81 +1,53 @@
 # Nmag for Python 3
 
-`nmag-python-3` is a modern, standalone Python implementation of the Nmag
-micromagnetic simulation interface. It can read legacy Nmesh files and modern
-simplex meshes, assign magnetic materials, calculate effective fields, relax
-LLG systems, save NDT/HDF5 results, and probe fields inside
-tetrahedral meshes.
+`nmag-python-3` is a standalone Python implementation of the Nmag finite-element
+micromagnetic simulation interface. It supports tetrahedral meshes, magnetic
+materials, static effective fields, adaptive LLG dynamics and relaxation,
+NDT/HDF5 output, field probing, and native restart checkpoints.
 
-The current release includes a minimum viable dynamic solver for the supported
-workflows. Dynamic results should still be validated against legacy
-Nmag when introducing a new geometry or material configuration.
+The human documentation is available at
+**<https://trimagnetix.github.io/nmag-python-3/>**. Start with the
+[installation guide](https://trimagnetix.github.io/nmag-python-3/getting-started/installation/)
+and [quickstart](https://trimagnetix.github.io/nmag-python-3/getting-started/quickstart/).
 
 ## Requirements
 
 - Linux
 - Python 3.10 or newer
-- A C compiler for Python packages that do not have a wheel for your platform
-- Rust and the matching Python development library only when building the
-  optional native accelerators
-
-On Ubuntu or Debian:
-
-```bash
-sudo apt update
-sudo apt install python3 python3-venv python3-pip build-essential
-```
-
-To build the accelerator with Python 3.12, also install its development
-library:
-
-```bash
-sudo apt install libpython3.12-dev
-```
+- A C compiler for Python dependencies without a platform wheel
+- Rust and the matching Python development library only for optional native
+  acceleration
 
 ## Installation
 
 From a clone of this repository:
 
 ```bash
+git switch mvp
 ./scripts/setup.sh
 ```
 
-The setup script creates or reuses `.venv`, asks whether to build the optional
-Rust accelerator, and runs the appropriate checks. It always invokes the
-virtual environment explicitly, so activation is never required.
-
-Run checks later with:
+The setup script creates or reuses `.venv`, offers to build the optional Rust
+accelerator, and runs the standard checks. Run a simulation with:
 
 ```bash
-./scripts/verify.sh
-./scripts/verify.sh --rust
+.venv/bin/python simulation.py
 ```
 
-`--rust` adds Rust formatting, lint, and native tests. Use it after choosing
-the accelerator during setup.
-
-## First Static Simulation
-
-Save this as `example.py` and run it with `python example.py`:
+## Minimal simulation
 
 ```python
 import nmag
 import nmesh
 
-
 mesh = nmesh.mesh_from_points_and_simplices(
-    points=[
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 1.0],
-    ],
+    points=[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
     simplices_indices=[[0, 1, 2, 3]],
     simplices_regions=[1],
 )
 mesh.save("sample.nmesh.h5")
 
-permalloy = nmag.MagMaterial(
+material = nmag.MagMaterial(
     name="Py",
     Ms=nmag.SI(1e6, "A/m"),
     exchange_coupling=nmag.SI(13e-12, "J/m"),
@@ -84,369 +56,65 @@ permalloy = nmag.MagMaterial(
 simulation = nmag.Simulation(name="sample")
 simulation.load_mesh(
     "sample.nmesh.h5",
-    [("magnetic", permalloy)],
+    [("magnetic", material)],
     unit_length=nmag.SI(1e-9, "m"),
 )
-simulation.set_m([1.0, 0.0, 0.0])
-simulation.set_H_ext([0.0, 0.0, 0.0], nmag.SI("A/m"))
+simulation.set_m([1, 0, 0])
+simulation.set_H_ext([0, 0, 0], nmag.SI("A/m"))
 simulation.save_data(fields="all")
-
-print(simulation.get_subfield_average("H_demag"))
 ```
 
-This writes:
-
-- `sample_dat.ndt`: one tabular row of averaged quantities.
-- `sample_dat.h5`: spatial field arrays and metadata.
-
-Mesh coordinates are multiplied by `unit_length` when loaded. In the example,
-one mesh coordinate unit is one nanometre.
-
-## Relaxation
-
-After loading a mesh and setting the initial magnetization, relax the system
-with:
-
-```python
-simulation.relax()
-
-print(simulation.time)
-print(simulation.step)
-print(simulation.last_integrator_stats)
-print(simulation.effective_integrator_max_step)
-```
-
-The default convergence threshold is one degree per nanosecond. Convergence is
-checked every five accepted integration steps and must be satisfied twice in a
-row. The default integrator uses SciPy DOP853 with relative and absolute
-tolerances of `1e-6`. The configured maximum step defaults to 1 ps. For meshes
-with exchange coupling, Nmag derives a smaller effective ceiling when needed
-to resolve the fastest lumped-FEM exchange mode without explicit-step
-instability.
-
-Because convergence scheduling is based on accepted steps, DOP853 and legacy
-CVODE can confirm the same threshold at different simulated times. Validate a
-new dynamic workflow's spatial stop state as well as its averages.
-
-Change these values before calling `relax()` when a simulation requires it:
-
-```python
-simulation.set_params(
-    stopping_dm_dt=nmag.SI(0.5e9 * 3.141592653589793 / 180.0, "1/s"),
-    ts_rel_tol=1e-7,
-    ts_abs_tol=1e-7,
-    ts_max_step=nmag.SI(0.5e-12, "s"),
-)
-```
-
-`advance_time(target_time, max_it=-1, exact_tstop=None)` exposes the underlying
-accepted-step integration for workflows that need explicit time control.
-
-Pin selected nodes by setting the local multiplier for the complete
-magnetization derivative. Zero fixes a node and one leaves it free:
-
-```python
-simulation.set_pinning(lambda position: 0.0 if position[2] < 5e-9 else 1.0)
-```
-
-Current-density (Zhang-Li) spin-transfer torque is enabled by assigning a
-uniform, nodal, or position-dependent current-density field:
-
-```python
-simulation.set_current_density([0.0, 0.0, 1e12], nmag.SI("A/m^2"))
-simulation.advance_time(nmag.SI(1e-12, "s"))
-```
-
-The torque uses each material's `llg_polarisation`, `llg_xi`, `llg_damping`,
-and `Ms`. `dm_dcurrent` exposes the recovered FEM directional derivative.
-
-Uniaxial and cubic anisotropy contribute to `H_anis`, `E_anis`, total fields,
-saved output, and DOP853 dynamics. Constants may be plain J/m^3 values or SI
-objects:
-
-```python
-easy_axis = nmag.uniaxial_anisotropy(
-    axis=[0.0, 0.0, 1.0],
-    K1=nmag.SI(1e5, "J/m^3"),
-    K2=nmag.SI(2e4, "J/m^3"),
-)
-material = nmag.MagMaterial(name="memory", anisotropy=easy_axis)
-```
-
-Use `nmag.cubic_anisotropy(axis1, axis2, K1, K2, K3)` for crystalline cubic
-terms. A custom polynomial energy callable is also accepted with an explicit
-order; it may return either J/m^3 as a float or an SI energy density:
-
-```python
-def anisotropy_energy(m):
-    return nmag.SI(1e5 * m[2] ** 2, "J/m^3")
-
-material = nmag.MagMaterial(
-    name="custom",
-    anisotropy=anisotropy_energy,
-    anisotropy_order=2,
-)
-```
-
-Predefined models use vectorized analytic derivatives. Custom callables use a
-validated finite-difference derivative and are therefore intended for smaller
-or exploratory models. The experimental Diffsol backend does not yet support
-anisotropy.
-
-For specialized demagnetization studies, `MagMaterial` accepts
-`scale_volume_charges`. It scales only the material's interior volume-charge
-source; boundary surface charges remain unchanged. The physical default is
-`1.0`.
-
-Native restart checkpoints preserve the loaded simulation's magnetisation,
-pinning, current density, external field, clock, and supported dynamics state:
-
-```python
-checkpoint = simulation.save_restart_file("relaxed_state.h5")
-
-# In a compatible simulation with the same mesh and materials already loaded:
-simulation.load_restart_file(checkpoint)
-```
-
-`load_m_from_h5file(checkpoint)` transfers only magnetisation and requires only
-the same mesh. Checkpoints are native `nmag-python-3` HDF5 files; legacy Nmag
-restart files are intentionally unsupported. DOP853 is reinitialized from the
-saved physical state, so subsequent adaptive step sizes can differ while
-fixed-time physical results remain equivalent.
-
-Call `simulation.get_restart_file_name()` to inspect the default checkpoint
-path. With `from when import at`, a relaxation schedule such as
-`save=[("save_restart", at("stage_end"))]` writes that default checkpoint at
-the configured save point.
-
-An experimental implicit Rust backend is available for stiff relaxation after
-building the accelerator:
-
-```python
-config = nmag.NmagConfig(integrator_backend="diffsol", accelerator="rust")
-simulation = nmag.Simulation(config=config)
-```
-
-It uses Diffsol BDF with an analytic LLG Jacobian-vector product and reports
-Newton and linear-solver statistics through `last_integrator_stats`. The
-default remains SciPy. This first backend supports `relax()` with its default
-save/convergence schedule and dense isotropic systems; it does not yet replace
-`advance_time()` or custom relaxation schedules. There is no fixed mesh or
-state-count limit. Before allocating dense solver matrices, Nmag estimates peak
-memory and uses 80% of currently available memory as its default budget. Set
-`NMAG_DIFFSOL_DENSE_MEMORY_LIMIT_GIB` to a reviewed GiB value or `unlimited` to
-override that resource guard. A 540-node sphere with 1,620 magnetization state
-values is included in the validated range; dense time and memory growth still
-make this backend best suited to meshes that fit the available machine.
-
-For larger meshes, automatic demagnetization storage uses a certified hierarchy
-when a dense boundary matrix no longer fits the configured memory budget and
-the Rust accelerator is available. The hierarchy preserves exact near-field
-blocks, compresses separated interactions, and checks its result against exact
-Lindholm entries before use. Failed certification or a construction budget
-overrun falls back to the exact matrix-free operator.
-
-Select the fully low-memory path explicitly with:
-
-```bash
-NMAG_MEMORY_MODE=low python simulation.py
-```
-
-This uses sparse CSR FEM matrices, iterative scalar-potential solves, and an
-exact matrix-free Lindholm BEM action. It preserves the same discretized model
-while trading additional computation for lower memory use. SciPy DOP853 remains
-the dynamics integrator because the current Diffsol backend constructs a dense
-affine operator and is incompatible with low-memory mode.
-
-## Supported Scope
-
-Nmag-python-3 supports 3D tetrahedral micromagnetic workflows:
-legacy and modern mesh loading, demagnetization, exchange, uniform applied
-fields, uniaxial and cubic anisotropy, custom polynomial anisotropy energies,
-pinning, Zhang-Li current torque, adaptive dynamics and relaxation, native
-checkpoints, and NDT/HDF5 output. The optional Rust accelerator runs the same
-supported model as the Python paths.
-
-The main gaps are thermal and Slonczewski physics, periodic and custom
-`phi_BEM` demag, shared-node material-specific magnetization and local
-coupling, anisotropy in Diffsol, and full legacy hysteresis compatibility.
-Exact matrix-free demag avoids dense boundary storage but can still be slow on
-difficult geometries.
-
-## Mesh Formats
-
-`nmesh.load()` detects legacy Nmesh HDF5 from its internal layout and routes it
-to the dedicated compatibility reader. Other formats are loaded through
-`meshio`; their filename does not need to resemble an Nmesh file. Only line,
-triangle, and tetrahedron cells are imported, and mixed-cell files use the
-highest-dimensional supported cells. Region IDs are read from `region`,
-`gmsh:physical`, `cell_tags`, or `gmsh:geometrical` metadata when present;
-otherwise the importer assigns region `1`.
-
-For example:
-
-```python
-mesh = nmesh.load("geometry.vtu")
-```
-
-## Optional Rust Accelerators
-
-`./scripts/setup.sh` offers to build the extension. To add it after a standard
-setup, install Rust with [rustup](https://rustup.rs/), install the Rust extra,
-then run `./scripts/build-accelerator.sh`.
-
-After editing `rust/nmag_accel`, rebuild the extension with:
-
-```bash
-./scripts/build-accelerator.sh
-```
-
-This makes a fast debug build in `.venv`; pass `--release` for an optimized
-build.
-
-## Manual Setup
-
-The scripts are the recommended path. These commands are useful for CI or when
-you prefer to manage the environment yourself:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[dev]'
-
-# Optional accelerator
-python -m pip install -e '.[rust]'
-./scripts/build-accelerator.sh --release
-```
-
-Normal use does not require Rust. Each simulation receives an immutable
-`NmagConfig`; `auto` uses available Rust kernels only where the implementation
-expects them to help, `off` always keeps the Python/Numba paths, and `rust`
-requires the extension and fails clearly when it is unavailable.
-
-```python
-from pathlib import Path
-
-import nmag
-
-config = nmag.NmagConfig(
-    default_name="relaxation",
-    output_directory=Path("results"),
-    output_policy="error",
-    accelerator="auto",
-    demag_bem_storage="auto",
-    accelerator_overrides={nmag.RustKernel.LLG: "rust"},
-)
-simulation = nmag.Simulation(config=config)
-```
-
-`Simulation(name="...")` overrides `default_name`. `output_policy="error"`
-refuses existing NDT/HDF5 outputs, `"replace"` removes them before writing,
-and `"append"` validates the prior NDT schema before adding output rows. Append
-does not restore physical state; use `load_restart_file()` explicitly for that.
-
-For a simulation created without an explicit config only,
-`NMAG_ACCELERATOR=auto|off|rust` selects the default accelerator mode. An
-explicit `NmagConfig` always wins. The former per-kernel `NMAG_*_BACKEND`
-Rust selection variables are no longer supported. Expert callers can use
-`accelerator_overrides` with `RustKernel` values as shown above. Diffsol is an
-explicit `integrator_backend="diffsol"` configuration and is never selected by
-the global accelerator mode.
-
-Memory and storage selectors are:
-
-- `NMAG_MEMORY_MODE=auto|low`
-- `NMAG_DEMAG_FEM_MATRIX_BACKEND=auto|dense|sparse`
-- `NMAG_DEMAG_BEM_STORAGE_BACKEND=auto|dense|hierarchical|matrix-free`
-- `NMAG_DEMAG_LINEAR_SOLVER_BACKEND=auto|numpy|scipy`
-
-There is no default point-count rejection. Auto mode keeps dense BEM storage
-while its estimate is within 20% of available memory, then uses hierarchical
-storage when Rust is available or exact matrix-free storage otherwise. Sparse
-FEM is selected independently. If memory cannot be measured, 2,048 volume or
-boundary points is the conservative fallback crossover. Override those fallback counts with
-`NMAG_DEMAG_FEM_AUTO_SPARSE_MIN_POINTS` and
-`NMAG_DEMAG_BEM_AUTO_MATRIX_FREE_MIN_BOUNDARY_NODES`. Explicit dense selection
-is retained as the reference backend; `NMAG_DEMAG_DENSE_MAX_POINTS` is an
-optional user-defined safety cap rather than a built-in limitation.
-
-Tune hierarchy accuracy and resources with a frozen nested configuration:
-
-```python
-config = nmag.NmagConfig(
-    demag_bem_storage="hierarchical",
-    hierarchical_bem=nmag.HierarchicalBemConfig(
-        relative_tolerance=1e-6,
-        admissibility_eta=2.0,
-        leaf_size=32,
-        max_rank=128,
-        validation_vectors=4,
-        validation_rows=64,
-        memory_fraction=0.20,
-    ),
-)
-```
-
-`simulation.last_bem_operator_stats` reports the effective backend, fallback
-reason, setup time, stored and dense-equivalent bytes, block and rank counts,
-compression ratio, and sampled certification error. Hierarchies are tied to
-mesh geometry and rebuilt after geometry changes or process restart; checkpoint
-files intentionally do not serialize them. The hierarchical operator keeps
-near-field Lindholm blocks exact, compresses only separated interactions, and
-certifies the completed action against exact entries. A failed accuracy or
-memory check discards it and uses exact matrix-free BEM. Setting
-`accelerator="rust"` remains strict about the Rust extension being installed.
-
-Sparse FEM systems use normalized iterative SciPy solves. Dense auto mode uses
-reusable SciPy LU factorizations for systems with at least 128 points and keeps
-NumPy as the small-system reference path. Override that threshold with
-`NMAG_DEMAG_LINEAR_SOLVER_AUTO_SCIPY_MIN_SIZE`.
-
-Rust kernels use Rayon shared-memory parallelism above an operation-size
-crossover. Set `RAYON_NUM_THREADS` before starting Python to cap workers for
-reproducible profiling or shared-machine resource limits. Changing the global
-pool after numerical work begins is intentionally unsupported. Inspect the
-effective process configuration with:
-
-```python
-print(nmag.parallel_runtime_info())
-```
-
-Independent-point kernels are bitwise identical between one and multiple
-workers; reduction-based kernels are tested with numerical parity tolerances.
-
-## Development Checks
-
-Use the verification script when possible:
+For a tested, rerunnable version and a canonical sphere example, see the
+[getting-started guide](https://trimagnetix.github.io/nmag-python-3/getting-started/quickstart/).
+
+## Status
+
+The supported solver covers 3D tetrahedral demagnetization, exchange, uniform
+applied fields, uniaxial and cubic anisotropy, custom polynomial anisotropy,
+pinning, Zhang-Li current torque, adaptive dynamics and relaxation, checkpoints,
+and resource-aware demagnetization storage.
+
+Thermal dynamics, Slonczewski torque, periodic micromagnetic boundaries,
+material-specific magnetization at incompatible shared nodes, local
+inter-material coupling, and full legacy hysteresis compatibility are not yet
+supported. Validate new geometries and material models before relying on
+production results. The complete and current list is maintained in the
+[supported-scope guide](https://trimagnetix.github.io/nmag-python-3/guides/supported-scope/).
+
+## Configuration and acceleration
+
+Each simulation accepts an immutable `NmagConfig`. `accelerator="auto"` uses
+installed Rust kernels where helpful, `"off"` keeps Python/Numba paths, and
+`"rust"` requires the extension. Advanced callers can use
+`accelerator_overrides={nmag.RustKernel.LLG: "rust"}`.
+
+For a simulation created without an explicit configuration,
+`NMAG_ACCELERATOR=auto|off|rust` selects the process default. Prefer
+`NmagConfig` in reusable programs. See the
+[configuration guide](https://trimagnetix.github.io/nmag-python-3/guides/configuration/)
+for storage, memory, and integrator choices.
+
+## Development checks
 
 ```bash
 ./scripts/verify.sh
 ./scripts/verify.sh --rust
 ```
 
-The equivalent manual commands are:
+Build the documentation locally with:
 
 ```bash
-.venv/bin/ruff check src tests
-.venv/bin/pyright
-.venv/bin/python -m pytest
-cargo fmt --manifest-path rust/nmag_accel/Cargo.toml --all -- --check
-cargo clippy --manifest-path rust/nmag_accel/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path rust/nmag_accel/Cargo.toml
+.venv/bin/python -m pip install -e '.[docs]'
+.venv/bin/mkdocs build --strict
 ```
 
-## Project Status
+## Project lineage
 
-Static numerical behavior has been compared against legacy Nmag across
-canonical sphere, cube, elongated-prism, frontend-derived, and nonuniform
-magnetization fixtures. The Python 3 solver converges the scalar-potential
-system more tightly than legacy's default iterative tolerance and retains full
-LLG coefficient precision. The relaxation implementation preserves legacy
-field units and convergence rules while using a maintained SciPy integrator;
-accepted adaptive step counts and convergence times are not expected to match
-CVODE. Magnon-cascade average parity passes, while its strict spatial stop-state
-gate remains open because DOP853 confirms two five-step checks earlier.
+This project modernizes the original
+[nmag-project/nmag-src](https://github.com/nmag-project/nmag-src). The
+[historical Nmag 0.2 manual](https://nmag.readthedocs.io/en/latest/) remains a
+useful background reference, but its Python 2 runtime and some of its features
+do not describe this rewrite.
 
-The original project is available at
-[nmag-project/nmag-src](https://github.com/nmag-project/nmag-src).
+Nmag for Python 3 is distributed under the GNU General Public License version 2
+or, at your option, any later version. See [LICENSE](LICENSE).

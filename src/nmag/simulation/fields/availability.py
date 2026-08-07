@@ -43,7 +43,7 @@ class SimulationFieldAvailabilityMixin:
         def __getattr__(self, name: str) -> Any: ...
 
     def get_all_field_names(self) -> list[str]:
-        """Return fields that this MVP can actually save."""
+        """Return the field names currently available for saving or access."""
         has_mesh = self.mesh is not None
         has_m = "m" in self._fields
         has_mesh_and_m = has_mesh and has_m
@@ -63,13 +63,16 @@ class SimulationFieldAvailabilityMixin:
         ]
 
     def is_subfield_available(self, subfieldname: str) -> bool:
-        """Cheaply report whether this MVP can provide a subfield.
+        """Return whether the current model can provide a named field.
 
-        This is a schema predicate used by save-data discovery. It deliberately
-        avoids calling ``_subfield_array`` because that can run FEM/BEM demag
-        work just to decide whether a column or HDF5 dataset should exist.
-        Numerical failures are still handled by the callers that actually
-        compute the field.
+        The check does not trigger expensive FEM/BEM work. Actual field access
+        can still raise a numerical error during calculation.
+
+        Args:
+            subfieldname: Candidate field name.
+
+        Returns:
+            True when the field is set or derivable from current state.
         """
         if subfieldname == "H_ext":
             return True
@@ -144,6 +147,18 @@ class SimulationFieldAvailabilityMixin:
         return []
 
     def get_subfield(self, subfieldname: str, units: SI | None = None) -> Any:
+        """Return all nodal or cell values for one available field.
+
+        Args:
+            subfieldname: Name returned by :meth:`get_all_field_names`.
+            units: Optional compatible SI unit for returned numeric values.
+
+        Returns:
+            Field values as Python scalars or nested lists.
+
+        Raises:
+            KeyError: If the field is unknown, unset, or disabled.
+        """
         data, field_units = self._subfield_data_and_units(subfieldname)
         if units is None or field_units is None:
             return data.tolist() if isinstance(data, np.ndarray) else data

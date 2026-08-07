@@ -113,6 +113,21 @@ class SimulationIntegratorSetupMixin:
         exact_tstop: bool | None = None,
         ts_max_step: SI | float | None = None,
     ) -> None:
+        """Update convergence and DOP853 integration controls.
+
+        Args:
+            stopping_dm_dt: Positive convergence rate in 1/s.
+            ts_rel_tol: Positive relative error tolerance.
+            ts_abs_tol: Positive absolute error tolerance.
+            exact_tstop: Whether :meth:`advance_time` normally reconstructs
+                state exactly at its requested target.
+            ts_max_step: Positive configured maximum step in seconds. Exchange
+                stability can impose a smaller effective maximum.
+
+        Raises:
+            ValueError: If a supplied rate, tolerance, or step is not finite
+                and positive.
+        """
         if stopping_dm_dt is not None:
             value = (
                 stopping_dm_dt.in_units_of(_si_unit("1/s"))
@@ -190,6 +205,18 @@ class SimulationIntegratorSetupMixin:
         abs_tolerance: float | None = None,
         initial_time: SI | float | None = None,
     ) -> None:
+        """Rebuild the adaptive integrator from the current physical state.
+
+        Args:
+            rel_tolerance: Optional new relative tolerance.
+            abs_tolerance: Optional new absolute tolerance.
+            initial_time: Non-negative physical start time. Omit it to retain
+                the simulation clock.
+
+        Raises:
+            RuntimeError: If mesh or magnetization has not been set.
+            ValueError: If the time or tolerances are invalid.
+        """
         if rel_tolerance is not None or abs_tolerance is not None:
             self.set_params(ts_rel_tol=rel_tolerance, ts_abs_tol=abs_tolerance)
         if self.mesh is None or "m" not in self._fields:

@@ -8,7 +8,14 @@ from .backends import _load_rust_accelerator, _rust_accelerator_available
 
 @dataclass(frozen=True, slots=True)
 class ParallelRuntimeInfo:
-    """Shared-memory execution settings visible to the current process."""
+    """Shared-memory execution settings visible to the current process.
+
+    Attributes:
+        logical_cpus: Logical processors reported by the operating system.
+        rust_available: Whether a compatible native extension is installed.
+        rust_worker_threads: Rayon worker count when Rust is available.
+        rust_parallel_min_items: Operation-size crossover for parallel kernels.
+    """
 
     logical_cpus: int
     rust_available: bool

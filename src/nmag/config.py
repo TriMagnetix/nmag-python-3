@@ -23,7 +23,18 @@ DEMAG_BEM_STORAGE_ENV = "NMAG_DEMAG_BEM_STORAGE_BACKEND"
 
 @dataclass(frozen=True, slots=True)
 class HierarchicalBemConfig:
-    """Accuracy and resource policy for the compressed Lindholm operator."""
+    """Control accuracy and resources for compressed Lindholm BEM.
+
+    Attributes:
+        relative_tolerance: Requested relative compression/certification error.
+        admissibility_eta: Geometric separation threshold for low-rank blocks.
+        leaf_size: Maximum cluster leaf size.
+        max_rank: Maximum accepted low-rank block rank.
+        validation_vectors: Random vectors used to certify completed action.
+        validation_rows: Exact rows sampled during certification.
+        memory_fraction: Fraction of currently available memory allowed for the
+            completed hierarchy.
+    """
 
     relative_tolerance: float = 1.0e-6
     admissibility_eta: float = 2.0
@@ -51,7 +62,7 @@ class HierarchicalBemConfig:
 
 
 class RustKernel(str, Enum):
-    """Rust-accelerated calculation families with optional overrides."""
+    """Rust-accelerated calculation families accepted as override keys."""
 
     LINDHOLM_BEM = "lindholm_bem"
     PROBE_GEOMETRY = "probe_geometry"
@@ -78,7 +89,22 @@ def _empty_overrides() -> Mapping[RustKernel, AcceleratorMode]:
 
 @dataclass(frozen=True, slots=True)
 class NmagConfig:
-    """Immutable configuration supplied to one :class:`nmag.Simulation`."""
+    """Define immutable output, acceleration, storage, and integrator policy.
+
+    Attributes:
+        default_name: Simulation name used when ``Simulation(name=...)`` is
+            omitted.
+        output_directory: Directory for NDT, HDF5, and default checkpoint files.
+            The directory must exist before output is written.
+        output_policy: ``"error"` protects old output, ``"replace"`` starts it
+            again, and ``"append"`` validates and extends the NDT schema.
+        accelerator: Global ``"auto"``, ``"off"``, or strict ``"rust"`` mode.
+        accelerator_overrides: Per-:class:`RustKernel` mode overrides.
+        integrator_backend: ``"scipy"`` or experimental ``"diffsol"``.
+        demag_bem_storage: ``"auto"``, ``"dense"``, ``"hierarchical"``, or
+            ``"matrix-free"`` boundary-operator storage.
+        hierarchical_bem: Accuracy and resource settings for hierarchy builds.
+    """
 
     default_name: str = "nmag_simulation"
     output_directory: Path = Path(".")
@@ -128,7 +154,12 @@ class NmagConfig:
 
     @classmethod
     def from_environment(cls) -> NmagConfig:
-        """Build default configuration from supported process-level selectors."""
+        """Build default configuration from supported process-level selectors.
+
+        Returns:
+            Configuration using ``NMAG_ACCELERATOR`` and
+            ``NMAG_DEMAG_BEM_STORAGE_BACKEND`` when set.
+        """
 
         accelerator = os.environ.get(ACCELERATOR_ENV, "auto").strip().lower()
         bem_storage = os.environ.get(DEMAG_BEM_STORAGE_ENV, "auto").strip().lower()
@@ -138,6 +169,6 @@ class NmagConfig:
         )
 
     def accelerator_mode_for(self, kernel: RustKernel) -> AcceleratorMode:
-        """Return the configured mode for one accelerated calculation family."""
+        """Return a kernel override, falling back to the global accelerator mode."""
 
         return self.accelerator_overrides.get(kernel, self.accelerator)

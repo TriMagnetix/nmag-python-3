@@ -29,6 +29,23 @@ class SimulationTimeAdvanceMixin:
         max_it: int = -1,
         exact_tstop: bool | None = None,
     ) -> SI:
+        """Advance adaptive LLG integration toward a physical target time.
+
+        Args:
+            target_time: Absolute stage time to reach.
+            max_it: Maximum accepted steps, or ``-1`` for no explicit cap.
+            exact_tstop: Override whether a step crossing the target is
+                reconstructed at exactly the requested time.
+
+        Returns:
+            The physical time reached. It can precede ``target_time`` when
+            ``max_it`` limits the operation.
+
+        Raises:
+            ValueError: If the target precedes the current time or ``max_it``
+                is invalid.
+            RuntimeError: If the numerical integrator fails.
+        """
         target_seconds, current_seconds = self._advance_request(target_time, max_it)
         if target_seconds == current_seconds or max_it == 0:
             return SI(current_seconds, "s")

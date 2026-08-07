@@ -19,6 +19,15 @@ class SimulationFieldMaxangleMixin:
         def __getattr__(self, name: str) -> Any: ...
 
     def get_maxangle_average(self, field_name: str) -> float | None:
+        """Return the maximum neighboring magnetization angle in degrees.
+
+        Args:
+            field_name: Currently only ``"m"`` is supported.
+
+        Returns:
+            Maximum angle across mesh edges, or ``None`` when magnetization or
+            a suitable mesh is unavailable.
+        """
         timings: dict[str, float] = {}
         total_started = time.perf_counter()
         self.last_maxangle_timings_seconds = {}

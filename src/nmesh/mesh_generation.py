@@ -44,7 +44,27 @@ def get_default_meshing_parameters() -> MeshingParameters:
 
 
 class Mesh(MeshBase):
-    """Class for generating a mesh from geometric objects."""
+    """Generate a simplex mesh from implicit geometric objects.
+
+    Args:
+        bounding_box: Lower and upper coordinate corners enclosing the model.
+        objects: Geometry primitives or boolean combinations to mesh.
+        a0: Target initial point spacing in mesh-coordinate units.
+        density: Optional legacy density expression.
+        periodic: Periodic coordinate selectors for bounding-box meshing.
+        fixed_points: Additional points held fixed during relaxation.
+        mobile_points: Additional mobile seed points.
+        simply_points: Additional simple seed points.
+        callback: Mesher progress callback and interval.
+        mesh_bounding_box: Mesh the complete bounding box when true.
+        meshing_parameters: Explicit mesher controls.
+        cache_name: Optional compatibility cache label.
+        hints: Mesh/object hint pairs.
+        **kwargs: Named meshing-parameter overrides.
+
+    Raises:
+        ValueError: If the bounding box or object configuration is invalid.
+    """
 
     def __init__(
         self,

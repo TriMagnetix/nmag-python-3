@@ -40,12 +40,28 @@ def _si_constants() -> _SIConstants:
 
 
 class MagMaterial:
-    """
-    Represents a magnetic material, defining its physical properties such as
-    saturation magnetisation, exchange coupling, and LLG parameters.
+    """Define the physical parameters assigned to a magnetic mesh region.
 
-    All physical quantities should be provided as SI objects to ensure
-    dimensional correctness.
+    Args:
+        name: Unique material name used in field and output labels.
+        Ms: Saturation magnetization, compatible with A/m.
+        llg_damping: Dimensionless Gilbert damping coefficient.
+        llg_gamma_G: Gyromagnetic ratio used by the LLG equation.
+        llg_normalisationfactor: Coefficient for numerical norm correction.
+        llg_xi: Dimensionless nonadiabatic Zhang-Li coefficient.
+        llg_polarisation: Dimensionless spin-current polarization.
+        do_precession: Include the precessional LLG term when true.
+        exchange_coupling: Exchange constant, compatible with J/m.
+        anisotropy: Predefined anisotropy or custom energy callable.
+        anisotropy_order: Polynomial order required for a custom callable.
+        properties: Compatibility property labels. Most users should omit this.
+        scale_volume_charges: Multiplier for interior demagnetization volume
+            charge. Boundary surface charges remain physical and unscaled.
+
+    Raises:
+        TypeError: If a parameter has an unsupported type or dimensions.
+        ValueError: If a value is non-finite, physically invalid, or a custom
+            anisotropy omits its order.
     """
 
     def __init__(
@@ -64,53 +80,7 @@ class MagMaterial:
         properties: list[str] | None = None,
         scale_volume_charges: float = 1.0,
     ) -> None:
-        """
-        Initializes a magnetic material with its physical properties.
-
-        :Parameters:
-          `name` : string
-            The name of the material (e.g., 'Py', 'Fe').
-
-          `Ms` : SI Object
-            Saturation magnetisation in Amperes per meter.
-
-          `llg_damping` : float or SI Object
-            The dimensionless Gilbert damping parameter (alpha).
-
-          `llg_gamma_G` : SI Object
-            The gyromagnetic ratio for the LLG equation.
-
-          `exchange_coupling` : SI Object
-            The exchange coupling constant 'A' in Joules per meter.
-
-          `anisotropy` : PredefinedAnisotropy or callable
-            The anisotropy model.
-
-          `anisotropy_order` : int
-            The order of a custom polynomial anisotropy function.
-
-          `do_precession` : bool
-            If False, switches off the precessional term in the LLG equation.
-
-          `llg_normalisationfactor` : SI Object
-            A coefficient for an extra term added to the LLG right-hand side to correct
-            numerical errors in the magnetization norm.
-
-          `llg_xi` : float or SI Object
-            For spin-transfer-torque, this is the ratio between the exchange and the
-            spin-flip relaxation times (xi = tau_ex / tau_sf).
-
-          `llg_polarisation` : float or SI Object
-            For spin-transfer-torque, this is the polarisation of the spin-current.
-
-          `properties` : list of strings
-            A list of properties associated with the material, used internally by the
-            simulation to set up operators.
-
-          `scale_volume_charges` : float
-            Scales the interior demagnetization volume-charge source. Surface
-            charges are unchanged. The default value is 1.0.
-        """
+        """Initialize a material after validating units and physical values."""
         parameters = resolve_material_parameters(
             name,
             ms=Ms,

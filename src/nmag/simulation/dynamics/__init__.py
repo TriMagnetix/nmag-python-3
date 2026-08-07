@@ -54,6 +54,22 @@ class SimulationDynamicsMixin(SimulationIntegratorMixin):
         do: list[tuple[object, ...]] | None = None,
         convergence_check: Any = None,
     ) -> None:
+        """Relax magnetization until the convergence schedule completes.
+
+        Args:
+            H_applied: Optional applied-field value for compatibility with the
+                staged relaxation runner.
+            save: Scheduled save tuples such as
+                ``[("averages", every("step", 10))]``. Omit for averages and
+                fields at stage end.
+            do: Scheduled action tuples. Omit for the default stage lifecycle.
+            convergence_check: Custom :class:`when.When` condition. Omit for
+                the accepted-step convergence cadence.
+
+        Raises:
+            NotImplementedError: If a custom schedule is requested with the
+                experimental Diffsol backend.
+        """
         backend = _simulation_compatibility_binding(
             "_selected_integrator_backend", _selected_integrator_backend
         )(getattr(self, "config", None))

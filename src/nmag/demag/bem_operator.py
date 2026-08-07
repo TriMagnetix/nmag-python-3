@@ -10,7 +10,23 @@ from .lindholm_fast import _apply_lindholm_bem_matrix_free_fast
 
 @dataclass(frozen=True, slots=True)
 class BemOperatorStats:
-    """Construction diagnostics for the active boundary-element operator."""
+    """Describe construction and storage of the active BEM operator.
+
+    Attributes:
+        requested_backend: Storage mode requested by configuration.
+        effective_backend: Storage implementation actually constructed.
+        fallback_reason: Explanation when construction changed modes.
+        boundary_nodes: Number of boundary degrees of freedom.
+        boundary_faces: Number of oriented surface triangles.
+        setup_seconds: Operator construction time.
+        storage_bytes: Bytes retained by the effective operator.
+        dense_equivalent_bytes: Bytes required by an equivalent dense matrix.
+        dense_blocks: Exact blocks in a hierarchy.
+        low_rank_blocks: Compressed blocks in a hierarchy.
+        maximum_rank: Largest compressed-block rank.
+        mean_rank: Mean compressed-block rank.
+        sampled_relative_error: Certification error measured during setup.
+    """
 
     requested_backend: str
     effective_backend: str

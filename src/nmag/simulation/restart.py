@@ -18,16 +18,34 @@ class SimulationRestartMixin:
         def __getattr__(self, name: str) -> Any: ...
 
     def get_restart_file_name(self) -> Path:
-        """Return the default native checkpoint path for this simulation."""
+        """Return the default native checkpoint path beside simulation output."""
         return self.writer.h5_filename.with_name(f"{self.name}_restart.h5")
 
     def save_restart_file(self, filename: str | Path | None = None) -> Path:
-        """Atomically save a complete native checkpoint for a loaded simulation."""
+        """Atomically save a complete native checkpoint.
+
+        Args:
+            filename: Destination path, or ``None`` for the simulation's default
+                restart filename.
+
+        Returns:
+            The checkpoint path.
+
+        Raises:
+            RuntimeError: If mesh or magnetization state is incomplete.
+        """
         destination = self.get_restart_file_name() if filename is None else Path(filename)
         return save_checkpoint(self, destination)
 
     def load_m_from_h5file(self, filename: str | Path) -> None:
-        """Load only checkpoint magnetisation into an otherwise configured simulation."""
+        """Load only checkpoint magnetization into the configured simulation.
+
+        Args:
+            filename: Native checkpoint created for the same mesh.
+
+        Raises:
+            ValueError: If the checkpoint or mesh is incompatible.
+        """
         point_count = len(self._mesh_points())
         contents = read_checkpoint(Path(filename), point_count)
         validate_mesh(self, contents)
@@ -35,7 +53,19 @@ class SimulationRestartMixin:
         self._invalidate_after_checkpoint_restore()
 
     def load_restart_file(self, filename: str | Path | None = None) -> None:
-        """Restore full native checkpoint state into a compatible loaded simulation."""
+        """Restore complete native state into a compatible loaded simulation.
+
+        The target simulation must already have the same mesh and compatible
+        materials. Magnetization, pinning, current density, applied field,
+        clock, integrator controls, and convergence state are restored.
+
+        Args:
+            filename: Source path, or ``None`` for the default restart filename.
+
+        Raises:
+            ValueError: If checkpoint schema, mesh, materials, or dimensions are
+                incompatible.
+        """
         source = self.get_restart_file_name() if filename is None else Path(filename)
         point_count = len(self._mesh_points())
         contents = read_checkpoint(source, point_count)

@@ -29,7 +29,12 @@ AnisotropyModel: TypeAlias = "PredefinedAnisotropy | EnergyFunction | None"
 
 @dataclass(frozen=True, slots=True)
 class PredefinedAnisotropy:
-    """An anisotropy energy model with optional analytic vectorized evaluation."""
+    """An anisotropy energy model with optional analytic vectorized evaluation.
+
+    Instances returned by :func:`uniaxial_anisotropy` and
+    :func:`cubic_anisotropy` can be added, subtracted, negated, and multiplied by
+    scalar coefficients before being assigned to :class:`nmag.MagMaterial`.
+    """
 
     function: EnergyFunction | None = None
     order: int | None = None

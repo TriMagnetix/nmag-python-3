@@ -20,7 +20,24 @@ class SimulationFieldProbeMixin:
         pos: Sequence[float],
         unit: SI | None = None,
     ) -> Any:
-        """Probe a stored field at an SI position."""
+        """Probe a field at a position expressed in metres.
+
+        Demagnetization fields are linearly interpolated in the containing
+        tetrahedron. Magnetization uses the nearest mesh node, and a homogeneous
+        applied field is returned directly.
+
+        Args:
+            subfieldname: ``H_demag``, ``H_ext``, or ``m``.
+            pos: Three physical coordinates in metres.
+            unit: Reserved compatibility argument. Returned values use the
+                field's standard SI representation.
+
+        Returns:
+            Ordinary numeric components in SI, or ``None`` outside the mesh.
+
+        Raises:
+            KeyError: If the field name is not supported by this probe API.
+        """
         if subfieldname == "H_demag":
             total_started = time.perf_counter()
             try:

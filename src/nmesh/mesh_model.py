@@ -15,7 +15,18 @@ _T = TypeVar("_T")
 
 
 class MeshBase:
-    """Base class for all mesh objects, providing access to mesh data."""
+    """Expose mesh geometry and topology through cached Python values.
+
+    Attributes:
+        points: Node coordinates.
+        simplices: Point indices for every simplex cell.
+        regions: Region ID for every simplex.
+        dim: Coordinate dimension.
+        surfaces: Boundary simplex indices.
+        point_regions: Incident region IDs for every point.
+        links: Unique mesh edges as point-index pairs.
+        region_volumes: Computed volume for each region.
+    """
 
     def __init__(self, raw_mesh: RawMesh) -> None:
         self.raw_mesh = raw_mesh
@@ -31,7 +42,7 @@ class MeshBase:
         return cast(_T, self._cache[cache_key])
 
     def scale_node_positions(self, scale: float) -> None:
-        """Scales all node positions in the mesh."""
+        """Multiply every node coordinate by ``scale`` and clear caches."""
         backend.mesh_scale_node_positions(self.raw_mesh, float(scale))
         for key in (
             "points",
@@ -45,7 +56,7 @@ class MeshBase:
             self._cache.pop(key, None)
 
     def save(self, filename: str | Path) -> None:
-        """Saves the mesh to a file (ASCII or HDF5)."""
+        """Save the mesh using the format selected by the filename suffix."""
         path = Path(filename)
         suffix = path.suffix.lower()
         if suffix == ".h5":
@@ -70,52 +81,57 @@ class MeshBase:
         return f"Mesh with {pts} points and {simps} simplices"
 
     def to_lists(self) -> list[object]:
-        """Returns mesh data as Python lists."""
+        """Return the backend's legacy mesh-data list representation."""
         return backend.mesh_plotinfo(self.raw_mesh)
 
     @property
     def points(self) -> list[Point]:
+        """Return node coordinates."""
         return self._cached_backend_value("points", backend.mesh_plotinfo_points)
 
     @property
     def simplices(self) -> list[Simplex]:
+        """Return point indices for every simplex cell."""
         return self._cached_backend_value("simplices", backend.mesh_plotinfo_simplices)
 
     @property
     def regions(self) -> list[int]:
+        """Return the region ID for every simplex cell."""
         return self._cached_backend_value("regions", backend.mesh_plotinfo_simplicesregions)
 
     @property
     def dim(self) -> int:
+        """Return the mesh coordinate dimension."""
         return backend.mesh_dim(self.raw_mesh)
 
     @property
     def surfaces(self) -> list[list[int]]:
+        """Return point indices for detected boundary simplices."""
         return backend.mesh_plotinfo_surfaces_and_surfacesregions(self.raw_mesh)[0]
 
     @property
     def point_regions(self) -> list[list[int]]:
-        """Returns regions for each point."""
+        """Return incident region IDs for each point."""
         return self._cached_backend_value("point_regions", backend.mesh_plotinfo_pointsregions)
 
     @property
     def links(self) -> list[tuple[int, int]]:
-        """Returns all links (pairs of point indices)."""
+        """Return unique mesh edges as point-index pairs."""
         return self._cached_backend_value("links", backend.mesh_plotinfo_links)
 
     @property
     def region_volumes(self) -> list[float]:
-        """Returns volume of each region."""
+        """Return geometric volume for each region."""
         return self._cached_backend_value("region_volumes", backend.mesh_plotinfo_regionvolumes)
 
     @property
     def num_regions(self) -> int:
-        """Returns the number of regions."""
+        """Return the number of mesh regions."""
         return len(self.region_volumes)
 
     @property
     def periodic_point_indices(self) -> list[list[int]]:
-        """Returns indices of periodic nodes."""
+        """Return groups of equivalent periodic point indices."""
         return self._cached_backend_value(
             "periodic_indices",
             backend.mesh_plotinfo_periodic_points_indices,
@@ -123,7 +139,7 @@ class MeshBase:
 
     @property
     def permutation(self) -> list[int]:
-        """Returns the node permutation mapping."""
+        """Return the node permutation mapping."""
         return backend.mesh_get_permutation(self.raw_mesh)
 
     def set_vertex_distribution(self, dist: object) -> None:

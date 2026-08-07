@@ -71,7 +71,23 @@ class MeshFromFile(MeshBase):
 
 
 class mesh_from_points_and_simplices(MeshBase):
-    """Wrapper for backward compatibility."""
+    """Construct a mesh from explicit points, simplex indices, and regions.
+
+    Args:
+        points: Coordinate vectors with a consistent dimension.
+        simplices_indices: Point-index vectors defining simplex cells.
+        simplices_regions: Positive region ID for every simplex.
+        periodic_point_indices: Optional groups of equivalent periodic points.
+            The micromagnetic simulation does not currently support periodic
+            boundary physics.
+        initial: Use ``1`` to convert one-based simplex indices to zero-based.
+        do_reorder: Request unsupported legacy node reordering.
+        do_distribute: Keep true; manual distribution is unsupported.
+
+    Raises:
+        ValueError: If points, simplices, regions, or indices are inconsistent.
+        NotImplementedError: If reordering or manual distribution is requested.
+    """
 
     def __init__(
         self,
@@ -109,12 +125,32 @@ def load(
     reorder: bool = False,
     distribute: bool = True,
 ) -> MeshFromFile:
-    """Utility function to load a mesh."""
+    """Load legacy Nmesh or a Meshio-supported mesh file.
+
+    Args:
+        filename: Source mesh path.
+        reorder: Request unsupported legacy node reordering.
+        distribute: Keep true; manual distribution is unsupported.
+
+    Returns:
+        Mesh wrapper containing points, simplices, regions, and topology.
+
+    Raises:
+        FileNotFoundError: If ``filename`` does not exist.
+        ValueError: If the mesh layout or supported cells are invalid.
+        NotImplementedError: If reordering or manual distribution is requested.
+    """
     return MeshFromFile(filename, reorder, distribute)
 
 
 def save(mesh: MeshBase, filename: str | Path) -> None:
-    """Alias for mesh.save for backward compatibility."""
+    """Save a mesh using the format selected by the destination suffix.
+
+    Args:
+        mesh: Mesh to serialize.
+        filename: Destination. ``.h5`` selects Nmesh HDF5, ``.nmesh`` selects
+            Nmesh ASCII, and other suffixes are delegated to Meshio.
+    """
     mesh.save(filename)
 
 
