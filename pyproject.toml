@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nmag-python-3"
-version = "0.0.1"
+version = "0.0.2"
 authors = [{ name = "TriMagnetix", email = "info@trimagnetix.com" }]
 description = "Standalone Python 3 implementation of the Nmag micromagnetic simulation interface"
 readme = "README.md"
