@@ -1,0 +1,92 @@
+name: Publish to PyPI
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: publish-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/nmag-python-3
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Use the latest main commit
+        run: |
+          git fetch --no-tags origin main
+          git checkout --detach origin/main
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install development dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install ".[dev]"
+
+      - name: Run verification checks
+        run: ./scripts/verify.sh
+
+      - name: Bump patch version when unchanged
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current_version="$({ python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'; })"
+          previous_version=""
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            previous_version="$({ git show HEAD^:pyproject.toml | python -c 'import sys, tomllib; print(tomllib.load(sys.stdin.buffer)["project"]["version"])'; })"
+          fi
+
+          if [[ "$current_version" == "$previous_version" ]]; then
+            new_version="$(python scripts/bump_patch_version.py)"
+            current_version="$new_version"
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "version=${current_version}" >> "$GITHUB_OUTPUT"
+          echo "Publishing version ${current_version}"
+
+      - name: Install build and metadata tools
+        run: .venv/bin/python -m pip install --upgrade build twine
+
+      - name: Build distributions
+        run: .venv/bin/python -m build
+
+      - name: Check distributions
+        run: .venv/bin/python -m twine check dist/*
+
+      - name: Publish distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Record automatic version bump
+        if: steps.version.outputs.bumped == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
+          git fetch --no-tags origin main
+          git rebase origin/main
+          git push origin HEAD:main
