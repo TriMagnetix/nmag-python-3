@@ -12,10 +12,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from numpy.typing import ArrayLike
 
 from ..utils.constants import MIN_ABS_SCALE_FACTOR
-from ..utils.types import FloatArray
+from ..utils.types import ArrayLike, FloatArray
 
 
 def _as_vector(values: ArrayLike, dim: int | None = None) -> FloatArray:

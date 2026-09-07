@@ -19,9 +19,8 @@ from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
 import numpy as np
-from numpy.typing import ArrayLike
 
-from ..utils.types import BoolArray, FloatArray
+from ..utils.types import ArrayLike, BoolArray, FloatArray
 from .transform import (
     AffineTransform,
     _as_vector,

@@ -40,7 +40,10 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/python -m pip install ".[dev]"
+          .venv/bin/python -m pip install -e ".[dev]"
+
+      - name: Build the optional Rust accelerator
+        run: ./scripts/build-accelerator.sh --release
 
       - name: Run verification checks
         run: ./scripts/verify.sh

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import numpy as np
-from numpy.typing import ArrayLike
 
 from .model import EnergyDensity, PredefinedAnisotropy
-from .values import FloatArray, _normalize, energy_density_value
+from .values import ArrayLike, FloatArray, _normalize, energy_density_value
 
 
 def _constant(value: EnergyDensity, name: str) -> float:

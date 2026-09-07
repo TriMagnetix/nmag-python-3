@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import numpy as np
-from numpy.typing import ArrayLike
 
 from .model import AnisotropyModel, FloatArray, PredefinedAnisotropy
-from .values import _callable_energy, _finite_difference_gradient, _magnetisation_array, _normalize
+from .values import (
+    ArrayLike,
+    _callable_energy,
+    _finite_difference_gradient,
+    _magnetisation_array,
+    _normalize,
+)
 
 
 def evaluate_energy_density(model: AnisotropyModel, magnetisation: ArrayLike) -> FloatArray:

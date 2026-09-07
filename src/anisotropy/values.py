@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, TypeAlias, cast
 
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
+from numpy.typing import NDArray
 
 from si.physical import SI
 
 FloatArray = NDArray[np.float64]
+# NumPy's ArrayLike alias is intentionally broad, but recent NumPy stubs expose
+# unresolved type variables through it under strict Pyright checking. These
+# inputs are normalized immediately with np.asarray, so Any is intentional at
+# this runtime-validation boundary.
+ArrayLike: TypeAlias = Any
 RawEnergyFunction = Callable[[ArrayLike], object]
 
 _ENERGY_DENSITY_UNIT = SI(1.0, "J/m^3")

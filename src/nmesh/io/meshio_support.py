@@ -8,9 +8,10 @@ from typing import Protocol, cast
 
 import meshio
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
+from numpy.typing import NDArray
 
 from ..backend import RawMesh
+from ..utils.types import ArrayLike
 from .legacy_nmesh_hdf5 import (
     is_legacy_nmesh_hdf5,
     load_raw_mesh_from_legacy_nmesh_hdf5,

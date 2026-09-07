@@ -7,11 +7,11 @@ from dataclasses import dataclass, field
 from typing import TypeAlias, cast
 
 import numpy as np
-from numpy.typing import ArrayLike
 
 from si.physical import SI
 
 from .values import (
+    ArrayLike,
     FloatArray,
     _callable_energy,
     _finite_difference_gradient,
