@@ -31,7 +31,7 @@ The setup script creates or reuses `.venv`, offers to build the optional Rust
 accelerator, and runs the standard checks. Run a simulation with:
 
 ```bash
-.venv/bin/python simulation.py
+.venv/bin/python {{simulation_file_name.py}}
 ```
 
 ## Minimal simulation
