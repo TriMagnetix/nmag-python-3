@@ -23,7 +23,6 @@ Clone the repository and use its setup script:
 ```bash
 git clone https://github.com/TriMagnetix/nmag-python-3.git
 cd nmag-python-3
-git switch mvp
 ./scripts/setup.sh
 ```
 

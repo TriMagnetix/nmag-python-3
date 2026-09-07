@@ -3,7 +3,7 @@ site_description: Human-readable documentation for the Nmag micromagnetic simula
 site_url: https://trimagnetix.github.io/nmag-python-3/
 repo_url: https://github.com/TriMagnetix/nmag-python-3
 repo_name: TriMagnetix/nmag-python-3
-edit_uri: edit/mvp/docs/
+edit_uri: edit/main/docs/
 copyright: Copyright © TriMagnetix and the Nmag contributors
 strict: true
 

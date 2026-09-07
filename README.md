@@ -23,7 +23,6 @@ and [quickstart](https://trimagnetix.github.io/nmag-python-3/getting-started/qui
 From a clone of this repository:
 
 ```bash
-git switch mvp
 ./scripts/setup.sh
 ```
 
