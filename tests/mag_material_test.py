@@ -1,10 +1,13 @@
 import unittest
 
+from anisotropy import PredefinedAnisotropy, uniaxial_anisotropy
+from mag_material import MagMaterial
+from mag_material.parameters import _expected_parameter_units
+
 # Import from the actual library files
 from si import constants
 from si.physical import SI
-from mag_material import MagMaterial
-from anisotropy import PredefinedAnisotropy, uniaxial_anisotropy
+
 
 class TestMagMaterial(unittest.TestCase):
     """Unit tests for the MagMaterial class using a real SI library."""
@@ -17,6 +20,18 @@ class TestMagMaterial(unittest.TestCase):
         self.assertEqual(mat.llg_damping, 0.5)
         self.assertIsNone(mat.anisotropy)
         self.assertTrue(mat.do_precession)
+
+    def test_expected_parameter_units_are_cached(self):
+        """Unit validation reuses expected-unit objects across materials."""
+        _expected_parameter_units.cache_clear()
+
+        MagMaterial(name='First')
+        first_units = _expected_parameter_units()
+        MagMaterial(name='Second')
+        second_units = _expected_parameter_units()
+
+        self.assertIs(first_units, second_units)
+        self.assertGreaterEqual(_expected_parameter_units.cache_info().hits, 1)
 
     def test_successful_initialization_custom(self):
         """Test creating a material with custom-defined parameters."""
@@ -47,7 +62,8 @@ class TestMagMaterial(unittest.TestCase):
             MagMaterial(name='ErrMat1', anisotropy=anis, anisotropy_order=2)
 
         # Case 2: Custom anisotropy function without specifying an order should fail.
-        custom_func = lambda m: m[2]**2
+        def custom_func(m):
+            return m[2]**2
         with self.assertRaisesRegex(ValueError, "must specify 'anisotropy_order'"):
             MagMaterial(name='ErrMat2', anisotropy=custom_func)
 
@@ -55,6 +71,13 @@ class TestMagMaterial(unittest.TestCase):
         mat = MagMaterial(name='GoodMat', anisotropy=custom_func, anisotropy_order=2)
         self.assertEqual(mat.anisotropy, custom_func)
         self.assertEqual(mat.anisotropy_order, 2)
+
+        with self.assertRaisesRegex(ValueError, "energy function and order"):
+            MagMaterial(name="NoEnergy", anisotropy=PredefinedAnisotropy(order=2))
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            MagMaterial(name="BadOrder", anisotropy=custom_func, anisotropy_order=0)
+        with self.assertRaisesRegex(TypeError, "callable"):
+            MagMaterial(name="BadModel", anisotropy="not-a-model", anisotropy_order=2)
 
     def test_parameter_validation(self):
         """Test validation of physical parameter units and values."""

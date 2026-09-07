@@ -1,5 +1,7 @@
 import pytest
+
 from simulation.inference import InferenceEngine
+
 
 def build_action_1(**kwargs):
     kwargs['tracker'].append("action_1")
@@ -18,13 +20,13 @@ def basic_engine():
     rules = [
         {"name": "root"},
         {
-            "name": "mid", 
-            "depends_on": ["root"], 
+            "name": "mid",
+            "depends_on": ["root"],
             "how_to_make": [build_action_1]
         },
         {
-            "name": "target", 
-            "depends_on": ["mid"], 
+            "name": "target",
+            "depends_on": ["mid"],
             "how_to_make": [build_action_2]
         }
     ]
@@ -41,9 +43,9 @@ def test_make_execution_order(basic_engine, build_tracker):
     """Verify that 'make' executes steps in the correct dependency order."""
     # Mark the base as up-to-date
     basic_engine.entities["root"]._is_uptodate = True
-    
+
     basic_engine.make("target", tracker=build_tracker)
-    
+
     # Order should be depth-first: mid then target
     assert build_tracker == ["action_1", "action_2"]
     assert basic_engine.entities["target"]._is_uptodate is True
@@ -51,26 +53,26 @@ def test_make_execution_order(basic_engine, build_tracker):
 def test_idempotency(basic_engine, build_tracker):
     """Verify that calling make twice doesn't re-run actions if up-to-date."""
     basic_engine.entities["root"]._is_uptodate = True
-    
+
     # First build
     basic_engine.make("target", tracker=build_tracker)
     assert len(build_tracker) == 2
-    
+
     # Second build (should do nothing)
     basic_engine.make("target", tracker=build_tracker)
-    assert len(build_tracker) == 2 
+    assert len(build_tracker) == 2
 
 def test_invalidation(basic_engine, build_tracker):
     """Verify that invalidating a root triggers a rebuild of everything downstream."""
     basic_engine.entities["root"]._is_uptodate = True
     basic_engine.make("target", tracker=build_tracker)
-    
+
     # Invalidate the very bottom
     basic_engine.invalidate("root")
-    
+
     assert basic_engine.entities["mid"]._is_uptodate is False
     assert basic_engine.entities["target"]._is_uptodate is False
-    
+
     # Clear tracker and rebuild
     build_tracker.clear()
     basic_engine.entities["root"]._is_uptodate = True

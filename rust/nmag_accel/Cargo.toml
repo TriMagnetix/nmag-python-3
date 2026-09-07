@@ -1,0 +1,16 @@
+[package]
+name = "nmag-accel"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "nmag_accel"
+crate-type = ["cdylib"]
+
+[dependencies]
+diffsol = "0.16"
+faer = { version = "0.24", default-features = false, features = ["std"] }
+ndarray = "0.17"
+numpy = "0.27"
+pyo3 = "0.27"
+rayon = "1.11"

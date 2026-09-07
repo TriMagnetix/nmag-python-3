@@ -1,9 +1,10 @@
 import pytest
+
 from nmesh.mesher.driver import (
-    make_mg_gendriver,
-    MeshEngineStatus,
     MeshEngineCommand,
+    MeshEngineStatus,
     do_every_n_steps_driver,
+    make_mg_gendriver,
 )
 
 

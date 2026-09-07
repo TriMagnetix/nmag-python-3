@@ -3,8 +3,12 @@ Unit tests for the Physical (SI) class using the pint library.
 """
 
 import unittest
+
 import pint
+
+from si import physical
 from si.physical import SI
+
 
 class TestHardcodedUnits(unittest.TestCase):
   """
@@ -99,12 +103,17 @@ class TestClassFunctionality(unittest.TestCase):
     self.assertEqual(s3.magnitude, 1.0)
     self.assertEqual(s3, SI(1.0, "m/s"))
 
+    # Quantity strings with explicit magnitudes still use Pint's parser.
+    s3_with_value = SI("10 m/s")
+    self.assertEqual(s3_with_value.magnitude, 10.0)
+    self.assertEqual(s3_with_value, SI(10.0, "m/s"))
+
     # Dimensionless initialization
     s4 = SI(5.0)
     s5 = SI(5.0, [])
     self.assertTrue(s4._quantity.dimensionless)
     self.assertEqual(s4, s5)
-    
+
     # --- Edge Cases for constructor ---
     # Test that an invalid list (uneven items) raises a ValueError
     with self.assertRaises(ValueError):
@@ -113,6 +122,35 @@ class TestClassFunctionality(unittest.TestCase):
     # Test that a non-numeric power in the list raises an error
     with self.assertRaises((ValueError, TypeError)):
       SI(1, ['m', 'one'])
+
+  def test_unit_string_parsing_is_cached(self):
+    """Repeated SI construction reuses parsed Pint unit objects."""
+    physical._pint_unit.cache_clear()
+
+    self.assertEqual(SI(1, "Wb"), SI(1, "Wb"))
+    info = physical._pint_unit.cache_info()
+    self.assertEqual(info.misses, 1)
+    self.assertEqual(info.hits, 1)
+
+  def test_generated_scaled_fast_units_keep_their_scale_in_pint(self):
+    """A generated fast unit retains its scale when an operation uses Pint."""
+    quantity = SI(1, "km") ** 2 * SI(1, "hectare")
+
+    self.assertEqual(quantity.in_units_of(SI(1, "m**4")), 1e10)
+
+  def test_fractional_fast_quantity_power_uses_pint_dimensions(self):
+    """Fractional powers must retain fractional dimensional exponents."""
+    root_length = SI(9, "m") ** 0.5
+
+    self.assertEqual(root_length.in_units_of(SI(1, "m**0.5")), 3.0)
+
+  def test_pint_unit_initialization_creates_a_quantity(self):
+    """Pint Units become magnitude-one Physical quantities."""
+    quantity = SI(pint.get_application_registry().meter)
+
+    self.assertEqual(quantity, SI(1, "m"))
+    self.assertEqual(quantity.magnitude, 1.0)
+    self.assertEqual(quantity.dens_str(), "<m>")
 
   def test_dens_str(self):
     """Test the dense string representation method."""
@@ -153,7 +191,7 @@ class TestClassFunctionality(unittest.TestCase):
     # Test that a non-Physical object raises a TypeError
     with self.assertRaises(TypeError):
       velocity_ms.in_units_of("km/h")
-      
+
     # Test division by a zero-magnitude unit
     quantity = SI(10, 'm')
     zero_unit = SI(0, 'm')
@@ -187,6 +225,13 @@ class TestClassFunctionality(unittest.TestCase):
     q = SI(5, 'm')
     self.assertEqual(q + 0, q)
     self.assertEqual(0 + q, q)
+
+  def test_pint_quantity_arithmetic_accepts_fast_quantity_operand(self):
+    difference = SI(10, "ps") - SI(0, "s")
+    ratio = SI(1e-11, "s") / SI(10, "ps")
+
+    self.assertEqual(difference.in_units_of(SI(1, "s")), 1e-11)
+    self.assertEqual(float(ratio), 1.0)
 
 # This allows the test to be run from the command line
 if __name__ == '__main__':

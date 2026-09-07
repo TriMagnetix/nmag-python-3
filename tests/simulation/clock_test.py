@@ -1,10 +1,10 @@
 import unittest
-from si.physical import SI
 
-from simulation.clock import fmt_time, SimulationClock
+from si.physical import SI
+from simulation.clock import SimulationClock, fmt_time
+
 
 class TestFmtTime(unittest.TestCase):
-
     def test_fmt_time_picoseconds(self):
         """Tests that times < 100 ps are formatted as picoseconds."""
         test_cases = [
@@ -33,15 +33,15 @@ class TestFmtTime(unittest.TestCase):
         """Tests the custom format specifier arguments."""
         t_ps = SI(50.123e-12, "s")
         t_ns = SI(150.123e-12, "s")
-        
+
         # Test custom picosecond format specifier
         self.assertEqual(fmt_time(t_ps, fmt_ps=".1f"), "50.1 ps")
-        
+
         # Test custom nanosecond format specifier
         self.assertEqual(fmt_time(t_ns, fmt_ns=".1f"), "0.2 ns")
 
-class TestSimulationClock(unittest.TestCase):
 
+class TestSimulationClock(unittest.TestCase):
     def setUp(self):
         """Provides a default, fresh SimulationClock instance for each test."""
         self.clock = SimulationClock()
@@ -54,21 +54,24 @@ class TestSimulationClock(unittest.TestCase):
         self.assertEqual(self.clock.time, SI(0.0, "s"))
         self.assertFalse(self.clock.convergence)
 
+    def test_clock_default_si_fields_are_independent_wrappers(self):
+        """Default SI fields reuse cached unit parsing without sharing wrappers."""
+        other = SimulationClock()
+
+        self.assertEqual(self.clock.time, SI(0.0, "s"))
+        self.assertIsNot(self.clock.time, self.clock.stage_time)
+        self.assertIsNot(self.clock.time, other.time)
+
     def test_clock_init_custom(self):
         """Test that the dataclass __init__ correctly overrides defaults."""
         custom_time = SI(1e-9, "s")
-        c = SimulationClock(
-            step=100, 
-            stage=5, 
-            time=custom_time, 
-            convergence=True
-        )
-        
+        c = SimulationClock(step=100, stage=5, time=custom_time, convergence=True)
+
         self.assertEqual(c.step, 100)
         self.assertEqual(c.stage, 5)
         self.assertEqual(c.time, custom_time)
         self.assertTrue(c.convergence)
-        
+
         # Check that others are still default
         self.assertEqual(c.id, -1)
         self.assertEqual(c.stage_step, 0)
@@ -77,11 +80,23 @@ class TestSimulationClock(unittest.TestCase):
         """Test that the dataclass __init__ raises a TypeError for an unknown argument."""
         with self.assertRaises(TypeError) as cm:
             SimulationClock(invalid_key="foo")
-        
+
         # The error message from dataclass is slightly different
         self.assertIn("unexpected keyword argument", str(cm.exception))
         self.assertIn("'invalid_key'", str(cm.exception))
 
+    def test_clock_supports_when_time_mapping_contract(self):
+        self.clock.step = 7
+
+        self.assertEqual(self.clock["step"], 7)
+        self.assertEqual(self.clock.get("missing", "fallback"), "fallback")
+        with self.assertRaises(KeyError):
+            _ = self.clock["missing"]
+
+        copied = self.clock.copy()
+        copied["step"] = 8
+        self.assertEqual(self.clock.step, 7)
+        self.assertEqual(copied["step"], 8)
 
     def test_inc_stage_default(self):
         """Test 'inc_stage()' with no arguments (default increment)."""
@@ -91,9 +106,9 @@ class TestSimulationClock(unittest.TestCase):
         self.clock.stage = 3
         self.clock.stage_step = 20
         self.clock.convergence = True
-        
+
         self.clock.inc_stage()
-        
+
         self.assertEqual(self.clock.stage, 4)
         self.assertEqual(self.clock.stage_step, 0)
         self.assertEqual(self.clock.stage_time, SI(0.0, "s"))
@@ -106,9 +121,9 @@ class TestSimulationClock(unittest.TestCase):
         self.clock.step = 50
         self.clock.time = SI(10e-9, "s")
         self.clock.stage = 3
-        
+
         self.clock.inc_stage(stage=10)
-        
+
         self.assertEqual(self.clock.stage, 10)
         self.assertEqual(self.clock.stage_step, 0)
         self.assertFalse(self.clock.convergence)
@@ -127,22 +142,22 @@ class TestSimulationClock(unittest.TestCase):
     def test_str(self):
         """Test the __str__ magic method (using tabulate)."""
         s = str(self.clock)
-        
+
         # Check for tabulate "pipe" format
         self.assertIn("|", s)
-        
+
         # Check for header/footer
         self.assertTrue(s.startswith("="))
         self.assertTrue(s.endswith("="))
-        
+
         # Check for content (note: no spaces around '=')
         self.assertIn("ID=-1", s)
         self.assertIn("Step=0", s)
         self.assertIn("Stage=1", s)
-        
+
         # Check that it still calls fmt_time
         self.assertIn("Time=0.00 ps", s)
-        
+
         # Check that old formatting is gone (no right-justified keys)
         self.assertNotIn("           ID=", s)
 
@@ -150,14 +165,14 @@ class TestSimulationClock(unittest.TestCase):
         """Test that __str__ (tabulate) correctly formats nanoseconds."""
         self.clock.time = SI(120e-12, "s")
         s = str(self.clock)
-        
+
         # Check for tabulate format
         self.assertIn("|", s)
-        
+
         # Check for the formatted nanosecond string
         self.assertIn("0.12 ns", s)
         self.assertIn("Time=0.12 ns", s)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.14,<2"]
+build-backend = "maturin"
+
+[project]
+name = "nmag-accel"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "Optional Rust accelerator kernels for nmag-python-3"
+
+[tool.maturin]
+module-name = "nmag_accel"
+features = ["pyo3/extension-module"]

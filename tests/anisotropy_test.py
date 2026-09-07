@@ -1,22 +1,31 @@
 import unittest
+
 import numpy as np
+import pytest
 
 # Import the classes and functions to be tested
 from anisotropy import (
     PredefinedAnisotropy,
-    uniaxial_anisotropy,
+    anisotropy_signature_values,
     cubic_anisotropy,
+    evaluate_energy_and_gradient,
+    evaluate_energy_density,
+    evaluate_energy_gradient,
+    uniaxial_anisotropy,
     want_anisotropy,
 )
+
 # Import the hidden helper function for normalization directly since it isn't exposed in the init file
 from anisotropy.anisotropy import _normalize
+from si.physical import SI
+
 
 class TestAnisotropy(unittest.TestCase):
     """Unit tests for the anisotropy definitions and helper functions."""
 
     ## Test Helper Functions
     # --------------------------------------------------------------------------
-    
+
     def testnormalize(self):
         """Tests the vector normalization helper function."""
         v = [1, 2, 3]
@@ -48,7 +57,7 @@ class TestAnisotropy(unittest.TestCase):
 
     ## Test PredefinedAnisotropy Class
     # --------------------------------------------------------------------------
-    
+
     def test_predefined_anisotropy_init(self):
         """Tests the constructor of the PredefinedAnisotropy class."""
         # Test successful creation with a function and order
@@ -77,7 +86,9 @@ class TestAnisotropy(unittest.TestCase):
         self.assertEqual(repr(a), 'PredefinedAnisotropy(anis_type="test", ?)')
 
         # Test with a custom stringifier
-        stringifier = lambda x: f"order={x.order}"
+        def stringifier(x):
+            return f"order={x.order}"
+
         b = PredefinedAnisotropy(anis_type="test", order=2, stringifier=stringifier)
         self.assertEqual(str(b), "<PredefinedAnisotropy:test, order=2>")
         self.assertEqual(repr(b), 'PredefinedAnisotropy(anis_type="test", order=2)')
@@ -90,11 +101,11 @@ class TestAnisotropy(unittest.TestCase):
 
         # Test unary positive operator (+)
         pos_a1 = +a1
-        self.assertIs(pos_a1, a1) # Should return the same object
+        self.assertIs(pos_a1, a1)  # Should return the same object
 
         # Test unary negative operator (-)
         neg_a1 = -a1
-        self.assertIsNot(neg_a1, a1) # Should return a new object
+        self.assertIsNot(neg_a1, a1)  # Should return a new object
         self.assertEqual(neg_a1.function(m_vec), -a1.function(m_vec))
         self.assertEqual(neg_a1.order, a1.order)
 
@@ -107,7 +118,7 @@ class TestAnisotropy(unittest.TestCase):
         sub_res = a2 - a1
         self.assertEqual(sub_res.order, 4)  # Order should be max(4, 2)
         self.assertAlmostEqual(sub_res.function(m_vec), np.dot(m_vec, m_vec))
-        
+
         # Test that operations with invalid types raise TypeError
         with self.assertRaises(TypeError):
             _ = a1 + 5
@@ -132,7 +143,7 @@ class TestAnisotropy(unittest.TestCase):
 
         # Test energy when magnetization is parallel to the axis
         m_parallel = [0, 0, 1]
-        expected_energy_parallel = -K1 * (1)**2 - K2 * (1)**4
+        expected_energy_parallel = -K1 * (1) ** 2 - K2 * (1) ** 4
         self.assertAlmostEqual(anis.function(m_parallel), expected_energy_parallel)
 
         # Test energy when magnetization is perpendicular to the axis
@@ -169,14 +180,14 @@ class TestAnisotropy(unittest.TestCase):
         m_face_diag = _normalize([1, 1, 0])  # [1/sqrt(2), 1/sqrt(2), 0]
         # Expected energy: K1 * (a1^2*a2^2) + K3 * (a1^2*a2^2)^2
         # E = K1 * (0.5*0.5) + K3 * (0.5*0.5)^2 = K1/4 + K3/16
-        self.assertAlmostEqual(anis.function(m_face_diag), K1/4 + K3/16)
-        
+        self.assertAlmostEqual(anis.function(m_face_diag), K1 / 4 + K3 / 16)
+
         # Test energy when magnetization is along a space diagonal [111]
         m_space_diag = _normalize([1, 1, 1])
         # a1=a2=a3 = 1/sqrt(3), so a_i^2 = 1/3
         # E = K1*(3*(1/3*1/3)) + K2*(1/3*1/3*1/3) + K3*(3*(1/3*1/3)^2)
         # E = K1/3 + K2/27 + K3/27
-        self.assertAlmostEqual(anis.function(m_space_diag), K1/3 + K2/27 + K3/27)
+        self.assertAlmostEqual(anis.function(m_space_diag), K1 / 3 + K2 / 27 + K3 / 27)
 
         # Test automatic order detection
         self.assertEqual(cubic_anisotropy(ax1, ax2, K1, K2, 0).order, 6)
@@ -189,5 +200,119 @@ class TestAnisotropy(unittest.TestCase):
         self.assertAlmostEqual(np.dot(anis_ortho.axis1, anis_ortho.axis3), 0)
         self.assertAlmostEqual(np.dot(anis_ortho.axis2, anis_ortho.axis3), 0)
 
-if __name__ == '__main__':
+    def test_si_energy_density_and_analytic_gradients(self):
+        uniaxial = uniaxial_anisotropy(
+            [0, 0, 1],
+            SI(1.0e5, "J/m^3"),
+            SI(2.0e4, "J/m^3"),
+        )
+        m = _normalize([1.0, 0.0, 1.0])
+        projection = m[2]
+        expected_gradient = np.asarray([0.0, 0.0, -2.0e5 * projection - 8.0e4 * projection**3])
+
+        self.assertAlmostEqual(
+            uniaxial.energy_density(m),
+            -1.0e5 * projection**2 - 2.0e4 * projection**4,
+        )
+        np.testing.assert_allclose(uniaxial.energy_gradient(m), expected_gradient)
+
+        cubic = cubic_anisotropy(
+            [1, 0, 0],
+            [0, 1, 0],
+            SI(1.0e5, "J/m^3"),
+        )
+        face_diagonal = _normalize([1.0, 1.0, 0.0])
+        expected = 1.0e5 / np.sqrt(2.0)
+        np.testing.assert_allclose(
+            cubic.energy_gradient(face_diagonal),
+            [expected, expected, 0.0],
+        )
+
+    def test_composed_models_preserve_gradients(self):
+        first = uniaxial_anisotropy([1, 0, 0], 2.0)
+        second = uniaxial_anisotropy([0, 1, 0], 3.0)
+        combined = first - second
+        m = _normalize([1.0, 2.0, 0.0])
+
+        np.testing.assert_allclose(
+            combined.energy_gradient(m),
+            first.energy_gradient(m) - second.energy_gradient(m),
+        )
+
+    def test_custom_model_uses_a_finite_difference_gradient(self):
+        custom = PredefinedAnisotropy(
+            function=lambda m: SI(2.0e5 * np.asarray(m)[0] ** 2, "J/m^3"),
+            order=2,
+        )
+        m = np.asarray([0.25, 0.5, 0.75])
+
+        np.testing.assert_allclose(
+            custom.energy_gradient(m),
+            [1.0e5, 0.0, 0.0],
+            rtol=1.0e-9,
+            atol=1.0e-5,
+        )
+
+    def test_energy_constants_require_energy_density_units(self):
+        with pytest.raises(TypeError, match="energy density"):
+            uniaxial_anisotropy([0, 0, 1], SI(1.0, "A/m"))
+
+    def test_public_evaluators_support_none_and_callable_models(self):
+        magnetisation = np.asarray([[1.0, 0.0, 0.0], [0.0, 2.0, 0.0]])
+
+        np.testing.assert_array_equal(
+            evaluate_energy_density(None, magnetisation),
+            [0.0, 0.0],
+        )
+        np.testing.assert_array_equal(
+            evaluate_energy_gradient(None, magnetisation),
+            np.zeros_like(magnetisation),
+        )
+        energy, gradient = evaluate_energy_and_gradient(None, magnetisation)
+        np.testing.assert_array_equal(energy, [0.0, 0.0])
+        np.testing.assert_array_equal(gradient, np.zeros_like(magnetisation))
+
+        def custom(m):
+            return 3.0 * np.asarray(m)[1] ** 2
+
+        np.testing.assert_allclose(
+            evaluate_energy_density(custom, magnetisation),
+            [0.0, 12.0],
+        )
+        np.testing.assert_allclose(
+            evaluate_energy_gradient(custom, magnetisation),
+            [[0.0, 0.0, 0.0], [0.0, 12.0, 0.0]],
+            atol=1.0e-7,
+        )
+
+    def test_public_evaluators_vectorize_predefined_models(self):
+        model = uniaxial_anisotropy([0, 0, 1], 5.0)
+        magnetisation = np.asarray([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
+
+        energy, gradient = evaluate_energy_and_gradient(model, magnetisation)
+        np.testing.assert_allclose(energy, [-5.0, 0.0])
+        np.testing.assert_allclose(gradient, [[0.0, 0.0, -10.0], [0.0, 0.0, 0.0]])
+        np.testing.assert_allclose(evaluate_energy_density(model, magnetisation), energy)
+        np.testing.assert_allclose(evaluate_energy_gradient(model, magnetisation), gradient)
+        self.assertEqual(anisotropy_signature_values(model, 2).shape, (21,))
+        np.testing.assert_array_equal(anisotropy_signature_values(None, None), [0.0])
+
+    def test_evaluation_rejects_invalid_inputs_and_outputs(self):
+        with pytest.raises(ValueError, match="Magnetisation"):
+            evaluate_energy_density(None, [1.0, 0.0])
+        with pytest.raises(ValueError, match="finite"):
+            evaluate_energy_gradient(None, [np.nan, 0.0, 1.0])
+        with pytest.raises(ValueError, match="positive integer"):
+            PredefinedAnisotropy(function=lambda _m: 0.0, order=0)
+        with pytest.raises(ValueError, match="no energy function"):
+            PredefinedAnisotropy(order=2).energy_density([1.0, 0.0, 0.0])
+        with pytest.raises(ValueError, match="finite"):
+            PredefinedAnisotropy(function=lambda _m: np.nan, order=2).energy_gradient(
+                [1.0, 0.0, 0.0]
+            )
+        with pytest.raises(ValueError, match="3-vectors"):
+            uniaxial_anisotropy([1.0, 0.0], 1.0)
+
+
+if __name__ == "__main__":
     unittest.main()

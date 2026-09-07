@@ -1,15 +1,19 @@
 *.swp
 .DS_Store
 venv
+.venv/
 __pycache__
 *.egg-info/
 htmlcov/
 .coverage
 .pytest_cache/
-
-# Dune/OCaml Project Ignore File
-_build/
-.dune/
-.merlin
-.ocaml-history
-.cmi
+target/
+build/
+dist/
+site/
+.eggs/
+.mypy_cache/
+.pytype/
+.tox/
+.nox/
+.ruff_cache/

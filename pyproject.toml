@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "nmag-python-3"
 version = "0.0.1"
 authors = [{ name = "TriMagnetix", email = "info@trimagnetix.com" }]
-description = "\"Nmag is a flexible finite element micromagnetic simulation package with an user interface based on the Python_ programming language.\" This is a rewrite to make it available for Python 3."
+description = "Standalone Python 3 implementation of the Nmag micromagnetic simulation interface"
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
@@ -16,10 +16,27 @@ dependencies = ["pint", "numpy", "scipy", "numba", "tabulate", "meshio", "h5py"]
 
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov", "pytest-watch"]
+rust = ["maturin>=1.14,<2"]
+docs = [
+  "mkdocs==1.6.1",
+  "mkdocs-material==9.7.7",
+  "mkdocstrings==1.0.6",
+  "mkdocstrings-python==2.0.5",
+]
+dev = [
+  "maturin>=1.14,<2",
+  "h5py-stubs>=0.1.2,<0.2",
+  "pyright>=1.1.400,<2",
+  "pytest",
+  "pytest-cov",
+  "pytest-watch",
+  "ruff>=0.12,<1",
+]
 
 [tool]
 setuptools.package-dir = { "" = "src" }
 setuptools.packages.find.where = ["src"]
+setuptools.package-data."*" = ["py.typed"]
 
 pytest.ini_options.addopts = [
   "-ra",
@@ -32,3 +49,35 @@ pytest.ini_options.testpaths = ["tests"]
 pytest_watch.runner = "pytest --clear"
 
 coverage.run.omit = ["*/tests/*"]
+coverage.run.branch = true
+coverage.report.fail_under = 80
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "ANN"]
+ignore = ["ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ANN"]
+"tests/*.py" = ["ANN"]
+
+[tool.pyright]
+include = ["src"]
+exclude = ["**/__pycache__", "build", "dist"]
+extraPaths = ["src"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.10"
+typeCheckingMode = "strict"
+useLibraryCodeForTypes = true
+reportMissingImports = "error"
+reportMissingModuleSource = "error"
+reportMissingTypeStubs = "none"
+reportPrivateUsage = "none"
+reportUnusedFunction = "none"
+# PEP 562 lazy exports are validated by import and packaging tests.
+reportUnsupportedDunderAll = "none"

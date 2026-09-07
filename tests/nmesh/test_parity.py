@@ -1,13 +1,14 @@
 import pytest
 
 from nmesh.backend import RawMesh
+from nmesh.io.ascii import read_ascii_nmesh
 from nmesh.mesher.parity import (
     assert_canonical_mesh_equal,
     canonical_mesh_signature,
     compare_mesh_metrics,
     mesh_metric_summary,
-    read_ascii_nmesh,
 )
+from nmesh.nmesh import write_mesh
 
 
 def _reference_triangle() -> RawMesh:
@@ -103,6 +104,24 @@ def test_read_ascii_nmesh_accepts_legacy_surface_and_periodic_rows(tmp_path):
     assert raw_mesh.periodic_point_indices == [[0, 1]]
     assert raw_mesh.links == [(0, 1), (0, 2), (1, 2)]
     assert raw_mesh.region_volumes == [0.5]
+
+
+def test_ascii_nmesh_round_trip_preserves_nanoscale_points_and_periodic_groups(tmp_path):
+    mesh_path = tmp_path / "nanoscale.nmesh"
+    raw_mesh = RawMesh(
+        points=[[0.0, 0.0], [1.25e-9, 0.0], [0.0, 2.5e-9]],
+        simplices=[[0, 1, 2]],
+        regions=[4],
+        periodic_point_indices=[[0, 1], [1, 2, 0]],
+        dim=2,
+    )
+
+    write_mesh(raw_mesh, out=mesh_path)
+    loaded = read_ascii_nmesh(mesh_path)
+
+    assert loaded.points == raw_mesh.points
+    assert loaded.periodic_point_indices == raw_mesh.periodic_point_indices
+    assert "periodic = 2" in mesh_path.read_text(encoding="utf-8")
 
 
 def test_mesh_metric_summary_reports_geometry_quality_metrics():

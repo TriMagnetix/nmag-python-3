@@ -1,12 +1,16 @@
-import unittest
-import numpy as np
-import nmesh.utils as utils
 import os
+import unittest
+
+import numpy as np
+
+import nmesh.utils as utils
+
 
 class TestUtils(unittest.TestCase):
     def test_array_filter(self):
         arr = [1, 2, 3, 4, 5]
-        p = lambda x: x % 2 == 0
+        def p(x):
+            return x % 2 == 0
         expected = [2, 4]
         np.testing.assert_array_equal(utils.array_filter(p, arr), expected)
 
@@ -18,7 +22,8 @@ class TestUtils(unittest.TestCase):
 
     def test_array_position_if(self):
         arr = [1, 3, 5, 8, 10]
-        p = lambda x: x % 2 == 0
+        def p(x):
+            return x % 2 == 0
         self.assertEqual(utils.array_position_if(p, arr), 3)
         self.assertEqual(utils.array_position_if(p, arr, start=4), 4)
 

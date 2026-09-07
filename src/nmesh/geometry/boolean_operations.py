@@ -9,6 +9,7 @@ implemented using signed distance field composition with NumPy.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import cast
 
 import numpy as np
 
@@ -16,10 +17,13 @@ from ..utils.types import FloatArray
 from .primitives import Body, MeshObject, _make_body
 
 
-def _validate_objects(objects: Sequence[MeshObject], operation: str) -> tuple[MeshObject, ...]:
+def _validate_objects(objects: object, operation: str) -> tuple[MeshObject, ...]:
     if not isinstance(objects, Sequence):
         raise TypeError(f"{operation} expects a sequence of MeshObject instances")
-    object_tuple = tuple(objects)
+    object_sequence = cast(Sequence[object], objects)
+    if not all(isinstance(obj, MeshObject) for obj in object_sequence):
+        raise TypeError(f"{operation} expects MeshObject instances")
+    object_tuple = tuple(obj for obj in object_sequence if isinstance(obj, MeshObject))
     if len(object_tuple) < 2:
         raise ValueError(f"{operation} requires at least two objects")
     dims = {obj.dim for obj in object_tuple}
@@ -65,7 +69,14 @@ def _stack_evaluations(bodies: Sequence[Body], points: FloatArray) -> FloatArray
 
 
 def union(objects: Sequence[MeshObject]) -> MeshObject:
-    """Return a body that is inside any of the supplied objects."""
+    """Return a geometry that is inside any supplied object.
+
+    Args:
+        objects: At least two objects with the same dimension.
+
+    Returns:
+        Combined mesh object.
+    """
 
     members = _validate_objects(objects, "Union")
     fixed_points, mobile_points = _collect_points(members)
@@ -79,7 +90,15 @@ def union(objects: Sequence[MeshObject]) -> MeshObject:
 
 
 def difference(mother: MeshObject, subtract: Sequence[MeshObject]) -> MeshObject:
-    """Return the mother object with each subtractor carved out of it."""
+    """Carve each subtractor out of a mother object.
+
+    Args:
+        mother: Object to retain.
+        subtract: Same-dimensional objects to remove.
+
+    Returns:
+        Resulting mesh object.
+    """
 
     mother_body = _body_for(mother)
     subtractors = tuple(subtract)
@@ -118,7 +137,14 @@ def difference(mother: MeshObject, subtract: Sequence[MeshObject]) -> MeshObject
 
 
 def intersect(objects: Sequence[MeshObject]) -> MeshObject:
-    """Return a body that is inside all of the supplied objects."""
+    """Return a geometry that is inside every supplied object.
+
+    Args:
+        objects: At least two objects with the same dimension.
+
+    Returns:
+        Intersected mesh object.
+    """
 
     members = _validate_objects(objects, "Intersection")
     fixed_points, mobile_points = _collect_points(members)

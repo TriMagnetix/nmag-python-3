@@ -9,7 +9,8 @@ CODATA values.
 https://github.com/hgrecco/pint/blob/master/pint/default_en.txt
 https://github.com/hgrecco/pint/blob/master/pint/constants_en.txt
 """
-from si.physical import ureg, SI
+
+from si.physical import ureg
 
 # --- Base and Common Units ---
 kilogram = ureg.kilogram

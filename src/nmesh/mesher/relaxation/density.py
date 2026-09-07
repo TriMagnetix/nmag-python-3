@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from typing import Any
 
 import numpy as np
 
@@ -137,12 +138,15 @@ def _compile_script_density(source: str) -> DensityFunction:
     namespace = _script_density_namespace()
     exec(translated, namespace, namespace)
     compiled = namespace["__compiled_density"]
+    if not callable(compiled):
+        raise TypeError("Translated density script did not define a callable")
 
     def script_density(point: FloatArray) -> float:
         """Evaluate a translated multi-line density script."""
 
         x = np.asarray(point, dtype=float)
-        return _clamp_density_value(float(compiled(x)))
+        result: Any = compiled(x)
+        return _clamp_density_value(float(result))
 
     return script_density
 
