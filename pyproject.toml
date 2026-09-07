@@ -79,5 +79,12 @@ reportMissingModuleSource = "error"
 reportMissingTypeStubs = "none"
 reportPrivateUsage = "none"
 reportUnusedFunction = "none"
+# NumPy 2.5 exposes several generic ufunc overloads with unresolved internal
+# type variables. Pyright reports those library members and their propagated
+# argument/result types as unknown even when the call site is valid. Keep the
+# rest of strict checking enabled while accommodating this upstream stub issue.
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownVariableType = "none"
 # PEP 562 lazy exports are validated by import and packaging tests.
 reportUnsupportedDunderAll = "none"
