@@ -5,9 +5,12 @@
 Nmag currently targets Linux and Python 3.10 or newer. A normal installation
 needs:
 
-- Python, `venv`, and `pip`;
-- a C compiler for dependencies without a wheel for your platform; and
-- Git to work from the source repository.
+- Python, `venv`, and `pip`; and
+- a C compiler for dependencies without a wheel for your platform.
+
+Git is only required if you choose the source checkout setup. The published
+package is the simplest option when you want to run Nmag without cloning the
+repository.
 
 On Ubuntu or Debian:
 
@@ -16,7 +19,27 @@ sudo apt update
 sudo apt install python3 python3-venv python3-pip build-essential
 ```
 
-## Recommended setup
+## Install from PyPI
+
+Create a virtual environment and install the published package:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install nmag-python-3
+```
+
+This installation is sufficient for normal simulations and uses the standard
+Python/Numba execution path. The optional native Rust accelerator is available
+when installing from a source checkout.
+
+Run a simulation with:
+
+```bash
+.venv/bin/python simulation.py
+```
+
+## Install from a source checkout
 
 Clone the repository and use its setup script:
 
@@ -43,7 +66,7 @@ source .venv/bin/activate
 python simulation.py
 ```
 
-## Manual setup
+## Manual source setup
 
 For CI or an existing environment:
 

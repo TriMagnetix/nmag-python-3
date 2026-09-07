@@ -20,9 +20,27 @@ and [quickstart](https://trimagnetix.github.io/nmag-python-3/getting-started/qui
 
 ## Installation
 
-From a clone of this repository:
+If you only want to run Nmag and do not need the source code, install the
+published package in a virtual environment:
 
 ```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install nmag-python-3
+```
+
+You can then run a simulation with:
+
+```bash
+.venv/bin/python simulation.py
+```
+
+To work from the source repository or contribute to Nmag, clone the repository
+and use its setup script instead:
+
+```bash
+git clone https://github.com/TriMagnetix/nmag-python-3.git
+cd nmag-python-3
 ./scripts/setup.sh
 ```
 

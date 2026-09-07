@@ -11,7 +11,7 @@ well-resolved physical body.
 --8<-- "docs/examples/quickstart.py"
 ```
 
-Run it from an installed checkout:
+Run it from an environment where `nmag-python-3` is installed:
 
 ```bash
 .venv/bin/python quickstart.py
