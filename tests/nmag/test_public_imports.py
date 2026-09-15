@@ -115,6 +115,9 @@ def test_public_nmag_import_surface():
     assert nmag.IntegratorStats
     assert nmag.MagMaterial
     assert nmag.Simulation
+    assert nmag.export_vtk
+    assert nmag.resolve_snapshot
+    assert nmesh.read_netgen_neutral
 
 
 def test_nmag_simulation_import_keeps_scipy_linalg_lazy():
@@ -202,5 +205,4 @@ def test_public_nmag_import_keeps_pint_registry_lazy():
         "False",
         "True",
     ]
-
 

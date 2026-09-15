@@ -14,6 +14,10 @@ classifiers = [
   "Operating System :: OS Independent" ]
 dependencies = ["pint", "numpy", "scipy", "numba", "tabulate", "meshio", "h5py"]
 
+[project.scripts]
+nmeshimport = "nmesh.cli.nmeshimport:main"
+nmagpp = "nmag.cli.nmagpp:main"
+
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov", "pytest-watch"]
 rust = ["maturin>=1.14,<2"]

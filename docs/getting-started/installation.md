@@ -95,6 +95,13 @@ version.
 .venv/bin/python -c "import nmag; print(nmag.SI(1, 'A/m'))"
 ```
 
+The published package exposes reusable mesh and VTK helpers directly:
+
+```python
+from nmag import export_vtk
+from nmesh import read_netgen_neutral
+```
+
 Then run the [quickstart](quickstart.md). If the optional accelerator was built,
 `nmag.parallel_runtime_info()` reports its effective thread configuration.
 
