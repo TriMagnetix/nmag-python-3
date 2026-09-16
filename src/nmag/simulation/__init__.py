@@ -264,7 +264,8 @@ class Simulation(
         Args:
             filename: Legacy Nmesh or Meshio-supported mesh file.
             region_names_and_mag_mats: ``(region_name, material)`` pairs in
-                ascending mesh-region order, starting at region 1.
+                ascending mesh-region order. Mesh region IDs do not need to be
+                contiguous or start at region 1.
             unit_length: Physical length represented by one mesh coordinate
                 unit.
             do_reorder: Request legacy node reordering. Reordering is currently
@@ -298,20 +299,23 @@ class Simulation(
         if manual_distribution is not None:
             self.mesh.set_vertex_distribution(manual_distribution)
 
-        self.region_name_list = [name for name, _ in region_names_and_mag_mats]
-        self.region_name_of_id = {
-            index: name for index, name in enumerate(self.region_name_list, start=1)
-        }
-        self.region_id_of_name = {name: index for index, name in self.region_name_of_id.items()}
-
-        mesh_region_ids = {int(region_id) for region_id in self.mesh.regions}
-        configured_region_ids = set(self.region_name_of_id)
-        if mesh_region_ids != configured_region_ids:
+        mesh_region_ids = sorted({int(region_id) for region_id in self.mesh.regions})
+        if len(mesh_region_ids) != len(region_names_and_mag_mats):
+            configured_names = [name for name, _ in region_names_and_mag_mats]
             raise ValueError(
                 "Mesh material regions do not match the configured region list: "
-                f"mesh={sorted(mesh_region_ids)}, configured={sorted(configured_region_ids)}. "
-                "Materials must be supplied in ascending mesh-region order."
+                f"mesh={mesh_region_ids}, configured={configured_names}. "
+                "Supply one material per mesh region, in ascending mesh-region order."
             )
+
+        self.region_name_list = [name for name, _ in region_names_and_mag_mats]
+        self.region_name_of_id = {
+            region_id: name
+            for region_id, name in zip(mesh_region_ids, self.region_name_list, strict=True)
+        }
+        self.region_id_of_name = {
+            name: region_id for region_id, name in self.region_name_of_id.items()
+        }
 
         self.mats_of_region_name = {}
         self.mat_of_mat_name = {}

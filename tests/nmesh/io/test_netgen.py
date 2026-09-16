@@ -4,6 +4,7 @@ import gzip
 
 import pytest
 
+import nmesh
 from nmesh.io.netgen import read_netgen_neutral
 
 NETGEN = """4
@@ -33,6 +34,16 @@ def test_read_netgen_neutral_accepts_gzip(tmp_path):
         stream.write(NETGEN)
 
     assert read_netgen_neutral(path).simplices == [[0, 1, 2, 3]]
+
+
+def test_nmesh_load_reads_netgen_neutral_file_without_conversion(tmp_path):
+    path = tmp_path / "mesh.neutral"
+    path.write_text(NETGEN, encoding="utf-8")
+
+    mesh = nmesh.load(path)
+
+    assert mesh.simplices == [[0, 1, 2, 3]]
+    assert mesh.regions == [7]
 
 
 @pytest.mark.parametrize(

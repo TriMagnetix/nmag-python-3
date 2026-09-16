@@ -127,11 +127,10 @@ def test_load_mesh_rejects_missing_material_region(tmp_path, monkeypatch):
     material = nmag.MagMaterial(name="Py", Ms=nmag.SI(1.0e6, "A/m"))
     sim = nmag.Simulation(name="missing-region")
 
-    with pytest.raises(ValueError, match=r"mesh=\[1, 2\], configured=\[1\]"):
+    with pytest.raises(ValueError, match=r"mesh=\[1, 2\], configured=\['region-one'\]"):
         sim.load_mesh(
             str(mesh_path),
             [("region-one", material)],
             unit_length=nmag.SI(1e-9, "m"),
         )
-
 

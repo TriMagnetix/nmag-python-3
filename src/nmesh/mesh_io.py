@@ -28,6 +28,11 @@ def _is_nmesh_hdf5_file(filename: str | Path) -> bool:
     return is_legacy_nmesh_hdf5(filename)
 
 
+def _is_netgen_neutral_file(filename: str | Path) -> bool:
+    name = Path(filename).name.lower()
+    return name.endswith((".neutral", ".neutral.gz"))
+
+
 def hdf5_mesh_get_permutation(filename: str | Path) -> list[int] | None:
     """Stub for retrieving permutation from HDF5."""
     log.warning("hdf5_mesh_get_permutation: HDF5 support is stubbed.")
@@ -62,6 +67,10 @@ class MeshFromFile(MeshBase):
             from .io.legacy_nmesh_hdf5 import load_raw_mesh_from_legacy_nmesh_hdf5
 
             raw = load_raw_mesh_from_legacy_nmesh_hdf5(path)
+        elif _is_netgen_neutral_file(path):
+            from .io.netgen import read_netgen_neutral
+
+            raw = read_netgen_neutral(path)
         else:
             from .io import load_raw_mesh_with_meshio
 

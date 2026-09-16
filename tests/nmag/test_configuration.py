@@ -25,6 +25,44 @@ def _simulation(tmp_path, *, config: nmag.NmagConfig, name: str = "configured") 
     return simulation
 
 
+def test_load_mesh_maps_materials_to_arbitrary_region_ids(tmp_path) -> None:
+    mesh_path = tmp_path / "modern.msh"
+    mesh_path.write_text(
+        """$MeshFormat
+2.2 0 8
+$EndMeshFormat
+$Nodes
+4
+1 0 0 0
+2 1 0 0
+3 0 1 0
+4 0 0 1
+$EndNodes
+$Elements
+1
+1 4 2 100001 100001 1 2 3 4
+$EndElements
+""",
+        encoding="utf-8",
+    )
+    material = nmag.MagMaterial(
+        name="Py",
+        Ms=nmag.SI(1.0e6, "A/m"),
+        exchange_coupling=nmag.SI(13.0e-12, "J/m"),
+    )
+
+    simulation = nmag.Simulation(name="arbitrary-region")
+    simulation.load_mesh(
+        str(mesh_path),
+        [("generated", material)],
+        unit_length=nmag.SI(1e-9, "m"),
+    )
+
+    assert simulation.region_name_of_id == {100001: "generated"}
+    assert simulation.region_id_of_name == {"generated": 100001}
+    assert simulation._simplex_material(100001) is material
+
+
 def test_config_defaults_are_immutable_and_overrides_are_frozen() -> None:
     config = nmag.NmagConfig(accelerator_overrides={nmag.RustKernel.LLG: "off"})
 

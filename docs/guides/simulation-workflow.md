@@ -46,9 +46,10 @@ simulation.load_mesh(
 )
 ```
 
-The material list is ordered by mesh region: the first entry maps to region 1,
-the second to region 2, and so on. Nmag checks that configured and actual
-regions match. Region names then appear in field and output labels.
+The material list is ordered by mesh region: entries map to the distinct mesh
+region IDs in ascending order. Region IDs do not need to be contiguous or start
+at 1, but Nmag still requires one material entry per mesh region. Region names
+then appear in field and output labels.
 
 `unit_length` converts mesh coordinate units into metres. If a Gmsh file already
 stores metres, use `nmag.SI(1, "m")`.

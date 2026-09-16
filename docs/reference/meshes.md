@@ -7,6 +7,9 @@ module import.
 
 ## Loading and construction
 
+Mesh region IDs may be arbitrary positive integers. When loading a simulation,
+materials are assigned to the distinct IDs in ascending order.
+
 ::: nmesh.mesh_io.load
 
 ::: nmesh.mesh_io.mesh_from_points_and_simplices

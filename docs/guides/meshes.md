@@ -76,13 +76,20 @@ magnetizations are a warning that the mesh does not resolve the state.
 Mesh objects also expose points, simplex indices, region IDs, surfaces, and
 region volumes for validation before simulation.
 
-## Convert Netgen Neutral meshes
+## Load Netgen Neutral meshes
 
-The supported replacement for the historical `nmeshimport --netgen` command
-is shipped with the package:
+Netgen Neutral files with the `.neutral` extension can be loaded directly:
+
+```python
+mesh = nmesh.load("input.neutral")
+```
+
+The parser also supports gzip-compressed `.neutral.gz` files. If a converted
+Nmesh HDF5 file is useful for an older workflow, the shipped conversion command
+remains available:
 
 ```bash
-nmeshimport --netgen input.mesh output.nmesh.h5
+nmeshimport --netgen input.neutral output.nmesh.h5
 ```
 
 Netgen tetrahedron indices are converted from one-based to zero-based indexing;
@@ -94,5 +101,5 @@ The parser is also importable from the installed package:
 ```python
 from nmesh import read_netgen_neutral
 
-mesh = read_netgen_neutral("input.mesh")
+raw_mesh = read_netgen_neutral("input.neutral")
 ```
