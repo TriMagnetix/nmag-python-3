@@ -8,6 +8,7 @@ from pathlib import Path
 import h5py
 import meshio
 import numpy as np
+from numpy.typing import ArrayLike
 
 import nmesh
 
@@ -77,7 +78,7 @@ def export_vtk(
         if np.any(simplices < 0) or np.any(simplices >= len(points)):
             raise ValueError("Mesh cell indices are outside the snapshot point range.")
 
-        point_data: dict[str, np.ndarray] = {}
+        point_data: dict[str, ArrayLike] = {}
         field_group = handle.get("fields")
         if not isinstance(field_group, h5py.Group):
             raise ValueError("Snapshot is missing the /fields group.")
@@ -97,7 +98,7 @@ def export_vtk(
                 )
             point_data[field_name] = np.asarray(values, dtype=float)
 
-    cell_data: dict[str, list[np.ndarray]] = {}
+    cell_data: dict[str, list[ArrayLike]] = {}
     if regions is not None:
         cell_data["region"] = [regions]
     mesh = meshio.Mesh(

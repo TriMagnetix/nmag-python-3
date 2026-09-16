@@ -12,7 +12,15 @@ requires-python = ">=3.10"
 classifiers = [
   "Programming Language :: Python :: 3",
   "Operating System :: OS Independent" ]
-dependencies = ["pint", "numpy", "scipy", "numba", "tabulate", "meshio", "h5py"]
+dependencies = [
+  "pint",
+  "numpy>=1.22,<2.6",
+  "scipy",
+  "numba>=0.67",
+  "tabulate",
+  "meshio",
+  "h5py",
+]
 
 [project.scripts]
 nmeshimport = "nmesh.cli.nmeshimport:main"
@@ -25,7 +33,7 @@ docs = [
   "mkdocs==1.6.1",
   "mkdocs-material==9.7.7",
   "mkdocstrings==1.0.6",
-  "mkdocstrings-python==2.0.5",
+  "mkdocstrings-python==2.0.8",
 ]
 dev = [
   "maturin>=1.14,<2",
