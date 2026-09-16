@@ -1,19 +1,6 @@
 """Public Python 3 entrypoint for the nmag rewrite."""
 
-# ruff: noqa: E402, I001  # path cleanup must precede the compatibility imports
-
-import sys
-from pathlib import Path
 from typing import Any
-
-
-_CURRENT_DIRECTORY = Path.cwd().resolve()
-if (_CURRENT_DIRECTORY / "simulation.py").is_file():
-    sys.path[:] = [
-        entry
-        for entry in sys.path
-        if Path(entry or ".").resolve() != _CURRENT_DIRECTORY
-    ]
 
 from anisotropy import (
     PredefinedAnisotropy,
