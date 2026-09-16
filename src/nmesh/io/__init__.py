@@ -23,12 +23,15 @@ _MESHIO_EXPORTS = {
     "save_raw_mesh_with_meshio",
 }
 
+_NETGEN_EXPORTS = {"read_netgen_neutral"}
+
 __all__ = [
     "is_legacy_nmesh_hdf5",
     "load_raw_mesh_from_legacy_nmesh_hdf5",
     "load_raw_mesh_with_meshio",
     "save_raw_mesh_as_legacy_nmesh_hdf5",
     "save_raw_mesh_with_meshio",
+    "read_netgen_neutral",
 ]
 
 
@@ -46,5 +49,11 @@ def __getattr__(name: str) -> Any:
         value = getattr(meshio_support, name)
         globals()[name] = value
         return value
+
+    if name in _NETGEN_EXPORTS:
+        from .netgen import read_netgen_neutral
+
+        globals()[name] = read_netgen_neutral
+        return read_netgen_neutral
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

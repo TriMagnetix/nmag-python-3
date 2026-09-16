@@ -75,3 +75,24 @@ magnetizations are a warning that the mesh does not resolve the state.
 `Mesh.save(path)` and `nmesh.save(mesh, path)` write an Nmesh HDF5 file.
 Mesh objects also expose points, simplex indices, region IDs, surfaces, and
 region volumes for validation before simulation.
+
+## Convert Netgen Neutral meshes
+
+The supported replacement for the historical `nmeshimport --netgen` command
+is shipped with the package:
+
+```bash
+nmeshimport --netgen input.mesh output.nmesh.h5
+```
+
+Netgen tetrahedron indices are converted from one-based to zero-based indexing;
+positive region IDs are retained. Other mesh formats can be converted through
+Meshio or loaded directly with `nmesh.load`.
+
+The parser is also importable from the installed package:
+
+```python
+from nmesh import read_netgen_neutral
+
+mesh = read_netgen_neutral("input.mesh")
+```

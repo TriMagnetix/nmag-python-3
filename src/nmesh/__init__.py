@@ -52,6 +52,7 @@ _MESHER_EXPORTS = {
     "do_every_n_steps_driver",
     "make_mg_gendriver",
 }
+_NETGEN_EXPORTS = {"read_netgen_neutral"}
 
 __all__ = [
     "Mesh",
@@ -96,10 +97,17 @@ __all__ = [
     "inverse_shift",
     "make_mg_gendriver",
     "union",
+    "read_netgen_neutral",
 ]
 
 
 def __getattr__(name: str) -> Any:
+    if name in _NETGEN_EXPORTS:
+        from .io.netgen import read_netgen_neutral
+
+        globals()[name] = read_netgen_neutral
+        return read_netgen_neutral
+
     if name in _GEOMETRY_EXPORTS:
         from . import geometry
 

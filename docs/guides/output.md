@@ -50,7 +50,34 @@ For a simulation named `sample`, Nmag writes:
 - `sample_dat.h5`: mesh metadata and requested nodal or cell fields.
 
 Use HDF5 readers such as H5py for analysis. The current rewrite does not ship
-the legacy `ncol` or `nmagpp` executables.
+the legacy `ncol` executable. It does ship a modern single-snapshot `nmagpp`
+exporter:
+
+```bash
+nmagpp --vtk results/simulation.vtu \
+  results/simulation_dat.h5 \
+  --mesh assets/model.nmesh.h5 \
+  --field m
+```
+
+Use `--field NAME` more than once or `--all-fields` to select additional point
+arrays. Modern spatial HDF5 output contains point coordinates and fields; an
+external mesh is required when it does not contain tetrahedral cell topology.
+The command exports one current snapshot and does not recreate the legacy
+time-series `nmagpp` format.
+
+The same exporter is available as a normal Python import:
+
+```python
+from nmag import export_vtk
+
+export_vtk(
+    "results/simulation_dat.h5",
+    "results/simulation.vtu",
+    mesh_path="assets/model.nmesh.h5",
+    fields=("m", "H_demag"),
+)
+```
 
 To write selected spatial fields to another compact HDF5 file:
 
