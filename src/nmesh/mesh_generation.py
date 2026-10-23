@@ -16,19 +16,19 @@ MeshCallback = Callable[[int, int, object], None]
 
 
 def _as_float_points(points: Sequence[Sequence[float]] | None) -> list[Point]:
-    return [list(map(float, point)) for point in (points or [])]
+    return [list(map(float, point)) for point in ([] if points is None else points)]
 
 
 def _as_int_simplices(simplices: Sequence[Sequence[int]] | None) -> list[Simplex]:
-    return [list(map(int, simplex)) for simplex in (simplices or [])]
+    return [list(map(int, simplex)) for point_list in [simplices] if point_list is not None for simplex in point_list]
 
 
 def _as_region_ids(regions: Sequence[int] | None) -> list[int]:
-    return [int(region) for region in (regions or [])]
+    return [int(region) for region in ([] if regions is None else regions)]
 
 
 def _normalise_periodic(periodic: Sequence[bool] | Sequence[float] | None, dim: int) -> list[float]:
-    if not periodic:
+    if periodic is None or len(periodic) == 0:
         return [0.0] * dim
     return [1.0 if bool(value) else 0.0 for value in periodic]
 
@@ -168,15 +168,15 @@ class Mesh(MeshBase):
 
     def fixed_points(self, points: Sequence[Sequence[float]] | None) -> None:
         """Adds fixed points to the mesh configuration."""
-        if points:
+        if points is not None and len(points) > 0:
             self._fixed_points.extend(_as_float_points(points))
 
     def mobile_points(self, points: Sequence[Sequence[float]] | None) -> None:
         """Adds mobile points to the mesh configuration."""
-        if points:
+        if points is not None and len(points) > 0:
             self._mobile_points.extend(_as_float_points(points))
 
     def simply_points(self, points: Sequence[Sequence[float]] | None) -> None:
         """Adds simply points to the mesh configuration."""
-        if points:
+        if points is not None and len(points) > 0:
             self._simply_points.extend(_as_float_points(points))

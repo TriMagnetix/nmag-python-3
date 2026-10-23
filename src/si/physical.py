@@ -142,7 +142,11 @@ class _FastQuantity:
     def __rsub__(self, other: Any) -> Any:
         if isinstance(other, (int, float)) and float(other) == 0.0:
             return _FastQuantity(-self.magnitude, self.units)
-        return _quantity_from_pint(other) - self
+        other_base = _fast_base_magnitude(other, self.units.dims)
+        return _FastQuantity(
+            (other_base - self.to_base_units().magnitude) / self.units.scale,
+            self.units,
+        )
 
     def __mul__(self, other: Any) -> Any:
         if isinstance(other, (int, float)):
@@ -354,7 +358,18 @@ def _fast_base_magnitude(other: Any, expected_dims: Dims) -> float:
                 _unit_from_dims(expected_dims),
             )
         return float(other)
-    return _quantity_from_pint(other).to_base_units().magnitude
+    pint_other = _quantity_from_pint(other)
+    expected_pint_unit = (
+        _pint_registry().Unit(_compact_from_dims(expected_dims))
+        if any(expected_dims)
+        else _pint_registry().Unit("")
+    )
+    if not pint_other.is_compatible_with(expected_pint_unit):
+        raise _pint_module().errors.DimensionalityError(
+            pint_other.units,
+            _unit_from_dims(expected_dims),
+        )
+    return float(pint_other.to_base_units().magnitude)
 
 
 def _quantity_from_pint(value: Any) -> Any:

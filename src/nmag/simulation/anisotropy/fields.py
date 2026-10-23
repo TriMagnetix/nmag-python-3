@@ -16,13 +16,17 @@ class SimulationAnisotropyMixin(
     SimulationAnisotropyMaterialMixin,
 ):
     if TYPE_CHECKING:
-        _anisotropy_fields_cache: tuple[tuple[int, int], np.ndarray, np.ndarray] | None
+        _anisotropy_fields_cache: tuple[tuple[int, int, int], np.ndarray, np.ndarray] | None
 
         def __getattr__(self, name: str) -> Any: ...
 
     def _get_anisotropy_fields(self) -> tuple[np.ndarray, np.ndarray]:
         m = np.asarray(self._fields["m"], dtype=np.float64)
-        token = (id(self._require_mesh().raw_mesh), id(self._fields["m"]))
+        token = (
+            self._mesh_geometry_token(),
+            self._material_state_token(),
+            id(self._fields["m"]),
+        )
         cached = self._anisotropy_fields_cache
         if cached is not None and cached[0] == token:
             return cached[1], cached[2]
@@ -49,6 +53,8 @@ class SimulationAnisotropyMixin(
 
         if not np.all(np.isfinite(field)) or not np.all(np.isfinite(energy)):
             raise FloatingPointError("Anisotropy evaluation produced non-finite fields.")
+        field.setflags(write=False)
+        energy.setflags(write=False)
         self._anisotropy_fields_cache = (token, field, energy)
         return field, energy
 

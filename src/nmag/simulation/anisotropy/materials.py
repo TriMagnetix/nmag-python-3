@@ -22,18 +22,20 @@ class NodalAnisotropyGroup:
 
 class SimulationAnisotropyMaterialMixin:
     if TYPE_CHECKING:
-        _nodal_anisotropy_groups_cache: tuple[int, tuple[NodalAnisotropyGroup, ...]] | None
+        _nodal_anisotropy_groups_cache: (
+            tuple[tuple[int, int], tuple[NodalAnisotropyGroup, ...]] | None
+        )
 
         def __getattr__(self, name: str) -> Any: ...
 
     def _nodal_anisotropy_groups(self) -> tuple[NodalAnisotropyGroup, ...]:
-        token = self._mesh_geometry_token()
+        token = (self._mesh_geometry_token(), self._material_state_token())
         cached = self._nodal_anisotropy_groups_cache
         if cached is not None and cached[0] == token:
             return cached[1]
 
         point_count = len(self._mesh_points())
-        simplices = np.asarray(self._require_mesh().simplices, dtype=np.int64)
+        simplices = np.asarray(self._mesh_simplices(), dtype=np.int64)
         regions = np.asarray(
             self._require_mesh().regions or [1] * len(simplices),
             dtype=np.int64,

@@ -91,23 +91,36 @@ class SimulationLlgRhsMixin:
         return tuple(arrays)
 
     @staticmethod
+    def _cross3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        out = np.empty_like(a)
+        out[:, 0] = a[:, 1] * b[:, 2] - a[:, 2] * b[:, 1]
+        out[:, 1] = a[:, 2] * b[:, 0] - a[:, 0] * b[:, 2]
+        out[:, 2] = a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+        return out
+
+    @staticmethod
+    def _dot3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        return a[:, 0] * b[:, 0] + a[:, 1] * b[:, 1] + a[:, 2] * b[:, 2]
+
+    @classmethod
     def _llg_field_rhs(
+        cls,
         m: np.ndarray,
         h_total: np.ndarray,
         precession_values: np.ndarray,
         damping_values: np.ndarray,
         normalisation_values: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
-        mxh = np.cross(m, h_total)
-        mdoth = np.einsum("ij,ij->i", m, h_total)
-        mdotm = np.einsum("ij,ij->i", m, m)
+        mdoth = cls._dot3(m, h_total)
+        mdotm = cls._dot3(m, m)
         damping = m * mdoth[:, np.newaxis] - h_total * mdotm[:, np.newaxis]
         norm_error = (1.0 - mdotm)[:, np.newaxis] * m
         rhs = (
-            precession_values[:, np.newaxis] * mxh
-            + damping_values[:, np.newaxis] * damping
+            damping_values[:, np.newaxis] * damping
             + normalisation_values[:, np.newaxis] * norm_error
         )
+        if np.any(precession_values):
+            rhs += precession_values[:, np.newaxis] * cls._cross3(m, h_total)
         return rhs, mdotm
 
     def _llg_stt_rhs(
@@ -130,8 +143,8 @@ class SimulationLlgRhsMixin:
                 ("stt_nonadiabatic", stt_nonadiabatic_coeff),
             ),
         )
-        mx_directional = np.cross(m, directional_derivative)
-        mdot_directional = np.einsum("ij,ij->i", m, directional_derivative)
+        mx_directional = self._cross3(m, directional_derivative)
+        mdot_directional = self._dot3(m, directional_derivative)
         mxmx_directional = (
             m * mdot_directional[:, np.newaxis] - directional_derivative * mdotm[:, np.newaxis]
         )

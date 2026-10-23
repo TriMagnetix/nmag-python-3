@@ -109,7 +109,9 @@ class SimulationFieldDerivedMixin:
         h_total = np.asarray(self._subfield_array("H_ext"), dtype=float)
         if self.do_demag:
             h_total = h_total + np.asarray(self._subfield_array("H_demag"), dtype=float)
-        return h_total + self._subfield_array("H_anis") + self._subfield_array("H_exch")
+        if not self._anisotropy_is_zero_by_construction():
+            h_total = h_total + self._subfield_array("H_anis")
+        return h_total + self._subfield_array("H_exch")
 
     def _derived_e_anis(self, point_count: int) -> np.ndarray:
         _field, energy = self._get_anisotropy_fields()
@@ -160,5 +162,7 @@ class SimulationFieldDerivedMixin:
             return False
         m = np.asarray(self._fields["m"], dtype=float)
         if m.ndim != 2 or len(m) == 0:
+            return False
+        if len(m) > 1 and np.max(np.abs(m[1] - m[0])) > 1.0e-12:
             return False
         return bool(np.allclose(m, m[0], rtol=0.0, atol=1.0e-12))

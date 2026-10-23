@@ -108,5 +108,45 @@ class TestMagMaterial(unittest.TestCase):
         self.assertIn("su_llg_coeff1", s_ext)
         self.assertGreater(len(s_ext.splitlines()), len(s_std.splitlines()))
 
+    def test_fast_quantity_rsub_and_material_mutation_sync(self):
+        """Test _FastQuantity.__rsub__, Pint compatibility, and MagMaterial mutation sync."""
+        import pint
+
+        self.assertAlmostEqual(float(1.0 - SI(0.25)), 0.75)
+        self.assertEqual(SI(2.0, "km") - SI(500.0, "m"), SI(1500.0, "m"))
+        self.assertEqual(SI(500.0, "m") - SI(2.0, "km"), SI(-1500.0, "m"))
+        with self.assertRaises(pint.DimensionalityError):
+            _ = 1.0 - SI(1.0, "m")
+        with self.assertRaises(pint.DimensionalityError):
+            _ = SI(1.0, "m") + SI(1.0, "T")
+
+        mat = MagMaterial(
+            name="STTMat",
+            Ms=SI(0.8e6, "A/m"),
+            llg_damping=0.02,
+            llg_xi=0.05,
+            llg_polarisation=0.7,
+        )
+        nadiab_1 = mat.su_llg_stt_nadiab
+        adiab_1 = mat.su_llg_stt_adiab
+        exch_1 = mat.su_exch_prefactor
+        self.assertNotEqual(nadiab_1.in_units_of(SI("m^3/A/s")), 0.0)
+        self.assertNotEqual(adiab_1.in_units_of(SI("m^3/A/s")), 0.0)
+
+        mat.Ms = SI(1.6e6, "A/m")
+        self.assertEqual(mat.su_Ms, mat.Ms)
+        self.assertAlmostEqual(
+            mat.su_exch_prefactor.value,
+            0.5 * exch_1.value,
+        )
+
+        mat.do_precession = False
+        self.assertEqual(mat.su_llg_coeff1, 0.0)
+
+        zero_mat = MagMaterial(name="ZeroMs", Ms=SI(0.0, "A/m"))
+        self.assertEqual(zero_mat.su_exch_prefactor.value, 0.0)
+        self.assertEqual(zero_mat.thermal_factor.value, 0.0)
+
+
 if __name__ == '__main__':
     unittest.main()

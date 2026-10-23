@@ -122,7 +122,10 @@ class mesh_from_points_and_simplices(MeshBase):
             points_list,
             simplices_list,
             _as_region_ids(simplices_regions),
-            [list(map(int, group)) for group in (periodic_point_indices or [])],
+            [
+                list(map(int, group))
+                for group in ([] if periodic_point_indices is None else periodic_point_indices)
+            ],
             do_reorder,
             do_distribute,
         )

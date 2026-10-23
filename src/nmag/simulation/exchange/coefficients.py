@@ -13,7 +13,7 @@ from ..support import MU0, _si_dimensionless, _si_unit
 class SimulationExchangeCoefficientMixin:
     if TYPE_CHECKING:
         _exchange_spectral_bound_cache: tuple[int, float] | None
-        _nodal_material_coefficients_cache: tuple[int, NodalMaterialCoefficients] | None
+        _nodal_material_coefficients_cache: tuple[tuple[int, int], NodalMaterialCoefficients] | None
 
         def __getattr__(self, name: str) -> Any: ...
 
@@ -48,13 +48,13 @@ class SimulationExchangeCoefficientMixin:
         )
 
     def _nodal_material_coefficients(self) -> NodalMaterialCoefficients:
-        token = self._mesh_geometry_token()
+        token = (self._mesh_geometry_token(), self._material_state_token())
         cached = self._nodal_material_coefficients_cache
         if cached is not None and cached[0] == token:
             return cached[1]
 
         point_count = len(self._mesh_points())
-        simplices = np.asarray(self._require_mesh().simplices, dtype=int)
+        simplices = self._mesh_simplices()
         regions = np.asarray(self._require_mesh().regions or [1] * len(simplices), dtype=int)
         if len(regions) != len(simplices):
             raise ValueError("Mesh regions must contain one entry per simplex.")
@@ -104,6 +104,8 @@ class SimulationExchangeCoefficientMixin:
                 for component in range(6)
             )
 
+        for arr in arrays:
+            arr.setflags(write=False)
         coefficients = NodalMaterialCoefficients(*arrays)
         self._nodal_material_coefficients_cache = (token, coefficients)
         return coefficients
@@ -151,7 +153,7 @@ class SimulationExchangeCoefficientMixin:
                 return cached_bound
 
         points = self._mesh_points()
-        simplices = np.asarray(self._require_mesh().simplices, dtype=int)
+        simplices = self._mesh_simplices()
         if simplices.size == 0:
             bound = 0.0
         else:
