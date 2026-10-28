@@ -131,18 +131,85 @@ class MagMaterial:
 
         self.su_anisotropy = self.anisotropy
         self._derived_su_constants: dict[str, MaterialScalar] | None = None
+        self._derived_su_token: tuple[int, ...] | None = None
 
         self.extended_print = False
+        self._initialized = True
         if log.isEnabledFor(logging.INFO):
             log.info("Created new Material:\n %s", self)
 
+    def _sync_llg_coeffs(self) -> None:
+        gilbert_to_ll = 1.0 / (1.0 + self.su_llg_damping**2)
+        base_coeff1 = -self.su_llg_gamma_G * gilbert_to_ll
+        object.__setattr__(self, "su_llg_coeff2", base_coeff1 * self.su_llg_damping)
+        object.__setattr__(
+            self,
+            "su_llg_coeff1",
+            0.0 if not self.do_precession else base_coeff1,
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        object.__setattr__(self, name, value)
+        if not getattr(self, "_initialized", False):
+            return
+        if name == "Ms":
+            object.__setattr__(self, "su_Ms", value)
+        elif name == "llg_gamma_G":
+            object.__setattr__(self, "su_llg_gamma_G", value)
+            self._sync_llg_coeffs()
+        elif name == "llg_damping":
+            object.__setattr__(self, "su_llg_damping", value)
+            self._sync_llg_coeffs()
+        elif name in {"su_llg_gamma_G", "su_llg_damping", "do_precession"}:
+            self._sync_llg_coeffs()
+        elif name == "llg_normalisationfactor":
+            object.__setattr__(self, "su_llg_normalisationfactor", value)
+        elif name == "exchange_coupling":
+            object.__setattr__(self, "su_exchange_coupling", value)
+        elif name == "anisotropy":
+            object.__setattr__(self, "su_anisotropy", value)
+        if not name.startswith("_"):
+            object.__setattr__(self, "_derived_su_constants", None)
+            object.__setattr__(self, "_derived_su_token", None)
+
     def _derived_su_values(self) -> dict[str, MaterialScalar]:
-        if self._derived_su_constants is None:
+        token = (
+            id(self.Ms),
+            id(self.llg_damping),
+            id(self.su_llg_damping),
+            id(self.llg_gamma_G),
+            id(self.su_llg_gamma_G),
+            id(self.llg_normalisationfactor),
+            id(self.su_llg_normalisationfactor),
+            id(self.llg_polarisation),
+            id(self.llg_xi),
+            id(self.exchange_coupling),
+            id(self.su_exchange_coupling),
+            id(self.su_Ms),
+            bool(self.do_precession),
+            id(self.anisotropy),
+            id(self.su_anisotropy),
+        )
+        if self._derived_su_constants is None or self._derived_su_token != token:
             constants = _si_constants()
-            thermal_factor = (2.0 * constants.boltzmann_constant * self.llg_damping) / (
-                -constants.gamma0 * constants.mu0 * self.Ms
+            ms = self.Ms.in_units_of(SI("A/m"))
+            su_ms = self.su_Ms.in_units_of(SI("A/m"))
+            thermal_factor = (
+                (
+                    (2.0 * constants.boltzmann_constant * self.llg_damping)
+                    / (-constants.gamma0 * constants.mu0 * SI(1.0, "A/m"))
+                )
+                * 0.0
+                if ms == 0.0
+                else (2.0 * constants.boltzmann_constant * self.llg_damping)
+                / (-constants.gamma0 * constants.mu0 * self.Ms)
             )
-            gilbert_to_ll = 1.0 / (1.0 + self.su_llg_damping**2)
+            damping = (
+                self.su_llg_damping.in_units_of(SI(1))
+                if isinstance(self.su_llg_damping, SI)
+                else float(self.su_llg_damping)
+            )
+            gilbert_to_ll = 1.0 / (1.0 + damping * damping)
             polarisation = (
                 self.llg_polarisation.in_units_of(SI(1))
                 if isinstance(self.llg_polarisation, SI)
@@ -153,7 +220,6 @@ class MagMaterial:
                 cast(Any, 1.0 * constants.bohr_magneton).to("J/T").magnitude
             )
             charge = float(cast(Any, 1.0 * constants.positron_charge).to("C").magnitude)
-            ms = self.Ms.in_units_of(SI("A/m"))
             su_f = (
                 SI(0.0, "m^3/A/s")
                 if ms == 0.0
@@ -165,16 +231,20 @@ class MagMaterial:
                     "m^3/A/s",
                 )
             )
+            su_exch_prefactor = (
+                (2.0 * self.su_exchange_coupling / (constants.mu0 * SI(1.0, "A/m"))) * 0.0
+                if su_ms == 0.0
+                else 2.0 * self.su_exchange_coupling / (constants.mu0 * self.su_Ms)
+            )
             self._derived_su_constants = {
                 "thermal_factor": thermal_factor,
                 "su_thermal_factor": thermal_factor,
                 "su_llg_stt_prefactor": 0.0 if su_f == 0.0 else 1.0,
-                "su_llg_stt_nadiab": su_f * (xi - self.su_llg_damping),
-                "su_llg_stt_adiab": su_f * (1.0 + self.su_llg_damping * xi),
-                "su_exch_prefactor": (
-                    2.0 * self.su_exchange_coupling / (constants.mu0 * self.su_Ms)
-                ),
+                "su_llg_stt_nadiab": su_f * (xi - damping),
+                "su_llg_stt_adiab": su_f * (1.0 + damping * xi),
+                "su_exch_prefactor": su_exch_prefactor,
             }
+            self._derived_su_token = token
         return self._derived_su_constants
 
     @property

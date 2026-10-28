@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -20,11 +19,34 @@ class SimulationDemagAuxiliaryMixin:
         _demag_rho_cache: Any | None
         _demag_volumes_cache: Any | None
         _demag_gauge_factorization_cache: Any | None
+        _last_demag_solve_diagnostics: dict[str, float | int] | None
+        _last_demag_solve_diagnostics_inputs: (
+            tuple[Any, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+            | None
+        )
 
         def __getattr__(self, name: str) -> Any: ...
 
+    @property
+    def last_demag_solve_diagnostics(self) -> dict[str, float | int]:
+        diagnostics = self._last_demag_solve_diagnostics
+        if diagnostics is None:
+            if self._last_demag_solve_diagnostics_inputs is None:
+                diagnostics = {}
+            else:
+                diagnostics = _demag_solve_diagnostics(
+                    *self._last_demag_solve_diagnostics_inputs
+                )
+                self._last_demag_solve_diagnostics_inputs = None
+            self._last_demag_solve_diagnostics = diagnostics
+        return dict(diagnostics)
+
+    @last_demag_solve_diagnostics.setter
+    def last_demag_solve_diagnostics(self, value: dict[str, float | int]) -> None:
+        self._last_demag_solve_diagnostics = dict(value)
+        self._last_demag_solve_diagnostics_inputs = None
+
     def _get_demag_auxiliary_fields(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        cache_started = time.perf_counter()
         token = self._demag_token()
         if (
             self._demag_aux_cache_token == token
@@ -32,17 +54,18 @@ class SimulationDemagAuxiliaryMixin:
             and self._demag_rho_cache is not None
             and self._demag_volumes_cache is not None
         ):
-            self._record_active_subfield_array_timing(
-                "demag_auxiliary:cache_hit",
-                time.perf_counter() - cache_started,
-            )
+            if self._active_subfield_array_timings is not None:
+                self._record_active_subfield_array_timing(
+                    "demag_auxiliary:cache_hit",
+                    0.0,
+                )
             return self._demag_phi_cache, self._demag_rho_cache, self._demag_volumes_cache
 
         with self._record_active_subfield_array_timing_block(
             "demag_auxiliary:mesh_inputs",
         ):
             points = self._mesh_points()
-            simplices = np.asarray(self._require_mesh().simplices, dtype=int)
+            simplices = self._mesh_simplices()
         if simplices.size == 0:
             phi = np.zeros(len(points), dtype=float)
             rho = np.zeros(len(points), dtype=float)
@@ -63,7 +86,8 @@ class SimulationDemagAuxiliaryMixin:
                     "demag_auxiliary:material_inputs",
                 ):
                     m = np.asarray(self._fields["m"], dtype=float)
-                    regions = list(self._require_mesh().regions or [1] * len(simplices))
+                    raw_regions = self._require_mesh().regions
+                    regions = raw_regions if raw_regions else [1] * len(simplices)
                     ms_values = self._simplex_material_ms_values(regions)
                     volume_charge_scales = self._simplex_volume_charge_scales(regions)
                 with self._record_active_subfield_array_timing_block(
@@ -78,6 +102,9 @@ class SimulationDemagAuxiliaryMixin:
                         volume_charge_scales,
                     )
 
+        phi.setflags(write=False)
+        rho.setflags(write=False)
+        volumes.setflags(write=False)
         self._demag_aux_cache_token = token
         self._demag_phi_cache = phi
         self._demag_rho_cache = rho
@@ -91,7 +118,7 @@ class SimulationDemagAuxiliaryMixin:
         boundary_faces: list[tuple[int, tuple[int, int, int]]],
         m: np.ndarray,
         ms_values: np.ndarray,
-        volume_charge_scales: np.ndarray,
+        volume_charge_scales: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         with self._record_active_subfield_array_timing_block(
             "demag_auxiliary:assemble_fem",
@@ -121,8 +148,7 @@ class SimulationDemagAuxiliaryMixin:
             elif _selected_demag_linear_solver_backend(stiffness.shape[0]) == "scipy":
                 if self._demag_gauge_factorization_cache is None:
                     self._demag_gauge_factorization_cache = _factorize_gauge_fixed(stiffness)
-                augmented_rhs = np.concatenate([divergence, [0.0]])
-                phi1 = self._demag_gauge_factorization_cache.solve(augmented_rhs)[:-1]
+                phi1 = self._demag_gauge_factorization_cache.solve_gauge(divergence)
             else:
                 phi1 = _solve_gauge_fixed(
                     stiffness,
@@ -153,23 +179,25 @@ class SimulationDemagAuxiliaryMixin:
                     boundary_nodes,
                     phi2_boundary,
                 )
-        self.last_demag_solve_diagnostics = _demag_solve_diagnostics(
+        phi = phi1 + phi2
+        self._last_demag_solve_diagnostics = None
+        self._last_demag_solve_diagnostics_inputs = (
             stiffness,
             divergence,
             boundary_nodes,
             phi1,
             phi2_boundary,
             phi2,
-            phi1 + phi2,
+            phi,
         )
         if _demag_internal_trace_enabled():
             self.last_demag_internal_vectors = {
                 "rho": np.array(rho, copy=True),
                 "phi1": np.array(phi1, copy=True),
                 "phi2": np.array(phi2, copy=True),
-                "phi": np.array(phi1 + phi2, copy=True),
+                "phi": np.array(phi, copy=True),
             }
-        return phi1 + phi2, rho, volumes
+        return phi, rho, volumes
 
     def _scalar_cofield_to_legacy_boxed_field(
         self,

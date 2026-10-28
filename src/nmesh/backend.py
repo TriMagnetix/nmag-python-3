@@ -113,6 +113,7 @@ class StubMeshBackend:
         for point in raw_mesh.points:
             for index, value in enumerate(point):
                 point[index] = value * scale
+        raw_mesh.points = list(raw_mesh.points)
         volume_scale = abs(scale) ** raw_mesh.dim
         raw_mesh.region_volumes = [volume * volume_scale for volume in raw_mesh.region_volumes]
 

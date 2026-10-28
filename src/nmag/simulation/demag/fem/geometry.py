@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from ....backends import (
+    DEMAG_DENSE_MAX_POINTS_ENV,
+    DEMAG_FEM_AUTO_SPARSE_MIN_POINTS_ENV,
+    DEMAG_FEM_MATRIX_BACKEND_ENV,
+    MEMORY_MODE_ENV,
     _load_rust_accelerator,
     _selected_demag_boundary_face_backend,
     _selected_demag_fem_geometry_backend,
@@ -20,8 +25,11 @@ from ...support import _simulation_compatibility_binding
 
 class SimulationDemagFemGeometryMixin:
     if TYPE_CHECKING:
-        _demag_fem_geometry_cache: Any | None
-        _demag_boundary_faces_cache: Any | None
+        _demag_fem_geometry_cache: (
+            tuple[str, np.ndarray, np.ndarray, Any, np.ndarray, np.ndarray] | None
+        )
+        _demag_fem_env_cache: tuple[Any, ...] | None
+        _demag_boundary_faces_cache: list[tuple[int, tuple[int, int, int]]] | None
 
         def __getattr__(self, name: str) -> Any: ...
 
@@ -32,23 +40,72 @@ class SimulationDemagFemGeometryMixin:
     ) -> tuple[Any, np.ndarray, np.ndarray]:
         token = self._mesh_geometry_token()
         self._ensure_demag_geometry_cache_token(token)
-        matrix_backend = _selected_demag_fem_matrix_backend(len(points))
-        if self._demag_fem_geometry_cache is not None:
-            cached_backend, stiffness, gradients, volumes = self._demag_fem_geometry_cache
-            if cached_backend == matrix_backend:
+        inputs_immutable = not points.flags.writeable and not simplices.flags.writeable
+        env_key = (
+            os.environ.get(DEMAG_FEM_MATRIX_BACKEND_ENV),
+            os.environ.get(MEMORY_MODE_ENV),
+            os.environ.get(DEMAG_FEM_AUTO_SPARSE_MIN_POINTS_ENV),
+            os.environ.get(DEMAG_DENSE_MAX_POINTS_ENV),
+        )
+        if (
+            inputs_immutable
+            and self._demag_fem_geometry_cache is not None
+            and self._demag_fem_env_cache == env_key
+        ):
+            (
+                _cached_backend,
+                cached_points,
+                cached_simplices,
+                stiffness,
+                gradients,
+                volumes,
+            ) = self._demag_fem_geometry_cache
+            if cached_points is points and cached_simplices is simplices:
                 return stiffness, gradients, volumes
+
+        matrix_backend = _selected_demag_fem_matrix_backend(len(points))
+        if inputs_immutable and self._demag_fem_geometry_cache is not None:
+            (
+                cached_backend,
+                cached_points,
+                cached_simplices,
+                stiffness,
+                gradients,
+                volumes,
+            ) = self._demag_fem_geometry_cache
+            if (
+                cached_backend == matrix_backend
+                and cached_points is points
+                and cached_simplices is simplices
+            ):
+                if matrix_backend == "dense":
+                    _validate_dense_demag_size(len(points))
+                self._demag_fem_env_cache = env_key
+                return stiffness, gradients, volumes
+
+        self._demag_gauge_factorization_cache = None
+        self._demag_dirichlet_factorization_cache = None
+        self._demag_fem_divergence_operator_cache = None
+        self._demag_cell_gradient_inputs_cache = None
+        self._exchange_operator_cache = None
 
         if matrix_backend == "sparse":
             stiffness, gradients, volumes = self._demag_fem_geometry_for_mesh_sparse(
                 points,
                 simplices,
             )
-            self._demag_fem_geometry_cache = (
-                matrix_backend,
-                stiffness,
-                gradients,
-                volumes,
-            )
+            gradients.setflags(write=False)
+            volumes.setflags(write=False)
+            if inputs_immutable:
+                self._demag_fem_geometry_cache = (
+                    matrix_backend,
+                    points,
+                    simplices,
+                    stiffness,
+                    gradients,
+                    volumes,
+                )
+                self._demag_fem_env_cache = env_key
             return stiffness, gradients, volumes
 
         backend = _selected_demag_fem_geometry_backend(
@@ -68,7 +125,19 @@ class SimulationDemagFemGeometryMixin:
                     simplices,
                 )
         stiffness, gradients, volumes = geometry
-        self._demag_fem_geometry_cache = (matrix_backend, stiffness, gradients, volumes)
+        stiffness.setflags(write=False)
+        gradients.setflags(write=False)
+        volumes.setflags(write=False)
+        if inputs_immutable:
+            self._demag_fem_geometry_cache = (
+                matrix_backend,
+                points,
+                simplices,
+                stiffness,
+                gradients,
+                volumes,
+            )
+            self._demag_fem_env_cache = env_key
         return stiffness, gradients, volumes
 
     def _demag_fem_geometry_for_mesh_sparse(

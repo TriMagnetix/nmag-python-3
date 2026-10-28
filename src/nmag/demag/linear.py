@@ -11,6 +11,7 @@ import numpy as np
 
 from ..backends import (
     DEMAG_DENSE_MAX_POINTS_ENV,
+    DEMAG_FEM_MATRIX_BACKEND_ENV,
     LEAST_SQUARES_RELATIVE_RESIDUAL_TOLERANCE,
     _demag_solve_condition_diagnostics_enabled,
     _selected_demag_linear_solver_backend,
@@ -20,41 +21,267 @@ LOGGER = logging.getLogger(__name__)
 _scipy_linalg_cache: Any | None = None
 
 
+_SPARSE_FACTORIZATION_MIN_POINTS = 64
+_SPARSE_FACTORIZATION_MAX_DENSITY = 0.25
+
+
+def _allow_sparse_factorization() -> bool:
+    return os.environ.get(DEMAG_FEM_MATRIX_BACKEND_ENV, "auto").strip().lower() != "dense"
+
+
 @dataclass(frozen=True, slots=True)
 class ScipyLUFactorization:
-    """Reusable LU factorization for a geometry-dependent dense system."""
+    """Reusable LU factorization for a geometry-dependent linear system."""
 
     lu: np.ndarray
     pivots: np.ndarray
+    splu: Any | None = None
+    gauge_fixed: bool = False
+    matrix: np.ndarray | None = None
+    constraint_scale: float = 1.0
 
     def solve(self, rhs: np.ndarray) -> np.ndarray:
-        return np.asarray(
+        rhs_array = np.asarray(rhs, dtype=float)
+        if not np.all(np.isfinite(rhs_array)):
+            raise np.linalg.LinAlgError("Cannot solve linear system with non-finite RHS.")
+        if self.splu is not None:
+            if self.gauge_fixed:
+                n = rhs_array.shape[0] - 1
+                if n < 0:
+                    raise ValueError(f"Expected rhs of length >= 1, got {rhs_array.shape}.")
+                rhs_body = rhs_array[:n]
+                rhs_gauge = rhs_array[n]
+                if n == 0 and np.any(rhs_gauge != 0.0):
+                    raise np.linalg.LinAlgError(
+                        "Singular gauge-fixed system with non-zero constraint RHS."
+                    )
+                lam = np.mean(rhs_body, axis=0) if n > 0 else np.zeros_like(rhs_gauge)
+                rhs_centered = rhs_body - lam
+                out = np.zeros_like(rhs_array, dtype=float)
+                if n > 1:
+                    out[1:n] = self.splu.solve(rhs_centered[1:])
+                if n > 0:
+                    out[:n] += rhs_gauge / n - np.mean(out[:n], axis=0)
+                out[n] = lam
+                if not np.all(np.isfinite(out)):
+                    raise np.linalg.LinAlgError("Sparse gauge-fixed LU solve produced non-finite values.")
+                return out
+            out = np.asarray(self.splu.solve(rhs_array), dtype=float)
+            if not np.all(np.isfinite(out)):
+                raise np.linalg.LinAlgError("Sparse LU solve produced non-finite values.")
+            return out
+        solve_rhs = rhs_array
+        if self.gauge_fixed and self.constraint_scale != 1.0 and rhs_array.shape[0] > 0:
+            solve_rhs = rhs_array.copy()
+            solve_rhs[-1] *= self.constraint_scale
+        if self.matrix is not None:
+            linalg = _scipy_linalg()
+            out = _validated_least_squares_solution(
+                self.matrix,
+                solve_rhs,
+                np.asarray(linalg.lstsq(self.matrix, solve_rhs, check_finite=False)[0], dtype=float),
+            )
+            if self.gauge_fixed and self.constraint_scale != 1.0 and out.shape[0] > 0:
+                out = out.copy()
+                out[-1] *= self.constraint_scale
+            return out
+        out = np.asarray(
             _scipy_linalg().lu_solve(
                 (self.lu, self.pivots),
-                np.asarray(rhs, dtype=float),
+                solve_rhs,
                 check_finite=False,
             ),
             dtype=float,
         )
+        if not np.all(np.isfinite(out)):
+            raise np.linalg.LinAlgError("Dense LU solve produced non-finite values.")
+        if self.gauge_fixed and self.constraint_scale != 1.0 and out.shape[0] > 0:
+            out = out.copy()
+            out[-1] *= self.constraint_scale
+        return out
+
+    def solve_gauge(self, divergence: np.ndarray) -> np.ndarray:
+        div_array = np.asarray(divergence, dtype=float)
+        if not np.all(np.isfinite(div_array)):
+            raise np.linalg.LinAlgError("Cannot solve gauge-fixed system with non-finite RHS.")
+        if self.splu is not None and self.gauge_fixed:
+            n = div_array.shape[0]
+            if n <= 1:
+                return np.zeros_like(div_array, dtype=float)
+            rhs_centered = div_array - np.mean(div_array, axis=0)
+            phi = np.zeros_like(div_array, dtype=float)
+            phi[1:] = self.splu.solve(rhs_centered[1:])
+            phi -= np.mean(phi, axis=0)
+            if not np.all(np.isfinite(phi)):
+                raise np.linalg.LinAlgError("Sparse gauge-fixed LU solve produced non-finite values.")
+            return phi
+        augmented_shape = (div_array.shape[0] + 1, *div_array.shape[1:])
+        augmented_rhs = np.zeros(augmented_shape, dtype=float)
+        augmented_rhs[:-1] = div_array
+        return self.solve(augmented_rhs)[:-1]
+
+
+def _is_well_conditioned_splu(splu: Any, matrix_scale: float) -> bool:
+    if matrix_scale <= np.finfo(float).tiny or not np.isfinite(matrix_scale):
+        return False
+    u_diag = np.asarray(splu.U.diagonal(), dtype=float)
+    if u_diag.size == 0 or not np.all(np.isfinite(u_diag)):
+        return False
+    if not np.all(np.isfinite(splu.U.data)) or not np.all(np.isfinite(splu.L.data)):
+        return False
+    max_u = max(float(np.max(np.abs(splu.U.data))) if splu.U.nnz else 0.0, matrix_scale)
+    pivot_tol = 100.0 * np.finfo(float).eps * max_u
+    return bool(np.all(np.abs(u_diag) > pivot_tol))
+
+
+def _factorize_dense_scipy(matrix_array: np.ndarray) -> ScipyLUFactorization:
+    import warnings
+
+    if not np.all(np.isfinite(matrix_array)):
+        raise np.linalg.LinAlgError("Cannot factorize a matrix with non-finite entries.")
+
+    linalg = _scipy_linalg()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", getattr(linalg, "LinAlgWarning", Warning))
+        lu, pivots = linalg.lu_factor(
+            matrix_array,
+            check_finite=False,
+        )
+    lu_array = np.asarray(lu, dtype=float)
+    pivots_array = np.asarray(pivots, dtype=int)
+    finite_lu = bool(np.all(np.isfinite(lu_array)))
+    max_entry = float(np.max(np.abs(lu_array))) if (lu_array.size and finite_lu) else 0.0
+    retained_matrix = (
+        matrix_array
+        if (
+            lu_array.size == 0
+            or not finite_lu
+            or max_entry <= np.finfo(float).tiny
+            or np.any(np.abs(np.diag(lu_array)) <= 100.0 * np.finfo(float).eps * max_entry)
+        )
+        else None
+    )
+    return ScipyLUFactorization(
+        lu_array,
+        pivots_array,
+        matrix=retained_matrix,
+    )
 
 
 def _factorize_scipy(matrix: np.ndarray) -> ScipyLUFactorization:
-    lu, pivots = _scipy_linalg().lu_factor(
-        np.asarray(matrix, dtype=float),
-        check_finite=False,
-    )
-    return ScipyLUFactorization(np.asarray(lu, dtype=float), np.asarray(pivots, dtype=int))
+    matrix_array = np.asarray(matrix, dtype=float)
+    if (
+        _allow_sparse_factorization()
+        and matrix_array.ndim == 2
+        and matrix_array.shape[0] == matrix_array.shape[1]
+        and matrix_array.shape[0] >= _SPARSE_FACTORIZATION_MIN_POINTS
+        and np.all(np.isfinite(matrix_array))
+    ):
+        sparse, sparse_linalg = _scipy_sparse_modules()
+        csc = sparse.csc_matrix(matrix_array)
+        max_abs = float(np.max(np.abs(csc.data))) if csc.nnz else 0.0
+        if (
+            max_abs > np.finfo(float).tiny
+            and csc.nnz <= _SPARSE_FACTORIZATION_MAX_DENSITY * matrix_array.size
+        ):
+            try:
+                splu = sparse_linalg.splu(csc)
+                if _is_well_conditioned_splu(splu, max_abs):
+                    return ScipyLUFactorization(
+                        np.empty((0, 0), dtype=float),
+                        np.empty(0, dtype=int),
+                        splu=splu,
+                        gauge_fixed=False,
+                    )
+            except (RuntimeError, np.linalg.LinAlgError):
+                LOGGER.debug(
+                    "Sparse LU factorization failed; falling back to dense LU.",
+                    exc_info=True,
+                )
+    return _factorize_dense_scipy(matrix_array)
+
+
+def _gauge_constraint_scale(matrix: np.ndarray) -> float:
+    if matrix.size == 0 or not np.all(np.isfinite(matrix)):
+        return 1.0
+    if matrix.ndim == 2 and matrix.shape[0] == matrix.shape[1]:
+        diag_max = float(np.max(np.abs(np.diag(matrix))))
+        if diag_max > np.finfo(float).tiny:
+            return diag_max
+    entry_max = float(np.max(np.abs(matrix)))
+    if entry_max > np.finfo(float).tiny:
+        return entry_max
+    return 1.0
 
 
 def _factorize_gauge_fixed(matrix: np.ndarray) -> ScipyLUFactorization:
-    constraint = np.ones(matrix.shape[0], dtype=float)
+    matrix_array = np.asarray(matrix, dtype=float)
+    n = matrix_array.shape[0]
+    if (
+        _allow_sparse_factorization()
+        and matrix_array.ndim == 2
+        and matrix_array.shape[1] == n
+        and n >= _SPARSE_FACTORIZATION_MIN_POINTS
+        and np.all(np.isfinite(matrix_array))
+    ):
+        sparse, sparse_linalg = _scipy_sparse_modules()
+        csc = sparse.csc_matrix(matrix_array)
+        max_abs = float(np.max(np.abs(csc.data))) if csc.nnz else 0.0
+        if (
+            max_abs > np.finfo(float).tiny
+            and csc.nnz <= _SPARSE_FACTORIZATION_MAX_DENSITY * matrix_array.size
+        ):
+            n_components = sparse.csgraph.connected_components(
+                csc,
+                directed=False,
+                return_labels=False,
+            )
+            row_col_tol = 100.0 * np.finfo(float).eps * max_abs
+            if (
+                n_components == 1
+                and np.allclose(
+                    np.asarray(csc.sum(axis=1)).ravel(),
+                    0.0,
+                    atol=row_col_tol,
+                    rtol=0.0,
+                )
+                and np.allclose(
+                    np.asarray(csc.sum(axis=0)).ravel(),
+                    0.0,
+                    atol=row_col_tol,
+                    rtol=0.0,
+                )
+            ):
+                try:
+                    splu = sparse_linalg.splu(csc[1:, 1:])
+                    if _is_well_conditioned_splu(splu, max_abs):
+                        return ScipyLUFactorization(
+                            np.empty((0, 0), dtype=float),
+                            np.empty(0, dtype=int),
+                            splu=splu,
+                            gauge_fixed=True,
+                        )
+                except (RuntimeError, np.linalg.LinAlgError):
+                    LOGGER.debug(
+                        "Sparse gauge-fixed LU factorization failed; falling back to dense LU.",
+                        exc_info=True,
+                    )
+    constraint_scale = _gauge_constraint_scale(matrix_array)
+    constraint = np.full(n, constraint_scale, dtype=float)
     augmented = np.block(
         [
-            [matrix, constraint[:, np.newaxis]],
+            [matrix_array, constraint[:, np.newaxis]],
             [constraint[np.newaxis, :], np.zeros((1, 1), dtype=float)],
         ]
     )
-    return _factorize_scipy(augmented)
+    dense = _factorize_dense_scipy(augmented)
+    return ScipyLUFactorization(
+        dense.lu,
+        dense.pivots,
+        matrix=dense.matrix,
+        gauge_fixed=True,
+        constraint_scale=constraint_scale,
+    )
 
 
 def __getattr__(name: str) -> Any:
@@ -304,10 +531,12 @@ def _gauge_augmented_system(
 ) -> tuple[np.ndarray, np.ndarray]:
     started = time.perf_counter()
     try:
-        constraint = np.ones(len(rhs), dtype=float)
+        matrix_array = np.asarray(matrix, dtype=float)
+        constraint_scale = _gauge_constraint_scale(matrix_array)
+        constraint = np.full(len(rhs), constraint_scale, dtype=float)
         augmented = np.block(
             [
-                [matrix, constraint[:, np.newaxis]],
+                [matrix_array, constraint[:, np.newaxis]],
                 [constraint[np.newaxis, :], np.zeros((1, 1), dtype=float)],
             ]
         )
@@ -337,17 +566,29 @@ def _solve_dense_scipy(
     record_timing: Callable[[str, float], None] | None,
     timing_prefix: str,
 ) -> np.ndarray:
+    import warnings
+
     started = time.perf_counter()
     linalg = _scipy_linalg()
     if record_timing is not None:
         record_timing(f"{timing_prefix}:scipy_import", time.perf_counter() - started)
     started = time.perf_counter()
     try:
-        result = linalg.solve(matrix, rhs, assume_a="sym", check_finite=False)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", getattr(linalg, "LinAlgWarning", Warning))
+            result = np.asarray(
+                linalg.solve(matrix, rhs, assume_a="sym", check_finite=False),
+                dtype=float,
+            )
+        if not np.all(np.isfinite(result)) or (
+            _safe_relative_residual(matrix @ result - rhs, rhs)
+            > LEAST_SQUARES_RELATIVE_RESIDUAL_TOLERANCE
+        ):
+            raise np.linalg.LinAlgError("Direct SciPy solve failed residual validation.")
         if record_timing is not None:
             record_timing(f"{timing_prefix}:scipy_solve", time.perf_counter() - started)
         return result
-    except np.linalg.LinAlgError:
+    except (np.linalg.LinAlgError, Warning):
         if record_timing is not None:
             record_timing(
                 f"{timing_prefix}:scipy_solve_failed",
@@ -387,7 +628,12 @@ def _solve_dense_numpy(
 ) -> np.ndarray:
     started = time.perf_counter()
     try:
-        result = np.linalg.solve(matrix, rhs)
+        result = np.asarray(np.linalg.solve(matrix, rhs), dtype=float)
+        if not np.all(np.isfinite(result)) or (
+            _safe_relative_residual(matrix @ result - rhs, rhs)
+            > LEAST_SQUARES_RELATIVE_RESIDUAL_TOLERANCE
+        ):
+            raise np.linalg.LinAlgError("Direct NumPy solve failed residual validation.")
         if record_timing is not None:
             record_timing(f"{timing_prefix}:numpy_solve", time.perf_counter() - started)
         return result
@@ -470,7 +716,8 @@ def _demag_solve_diagnostics(
         if _is_sparse_matrix(stiffness):
             diagnostics["condition_numbers_skipped_for_sparse_storage"] = 1
         else:
-            constraint = np.ones(len(divergence), dtype=float)
+            constraint_scale = _gauge_constraint_scale(np.asarray(stiffness, dtype=float))
+            constraint = np.full(len(divergence), constraint_scale, dtype=float)
             augmented_stiffness = np.block(
                 [
                     [stiffness, constraint[:, np.newaxis]],

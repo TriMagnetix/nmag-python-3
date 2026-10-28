@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -9,14 +8,20 @@ from ....backends import (
     _load_rust_accelerator,
     _selected_demag_cell_average_backend,
     _selected_demag_nodal_recovery_backend,
+    _selected_memory_mode,
 )
 from ...support import _simulation_compatibility_binding
+
+_RECOVERY_OPERATOR_MAX_SIMPLICES = 250_000
 
 
 class SimulationDemagRecoveryMixin:
     if TYPE_CHECKING:
         _demag_nodal_cache: np.ndarray | None
         _demag_cell_field_cache: tuple[np.ndarray, np.ndarray] | None
+        _demag_nodal_recovery_operator_cache: (
+            tuple[np.ndarray, np.ndarray, np.ndarray, int, Any] | None
+        )
 
         def __getattr__(self, name: str) -> Any: ...
 
@@ -26,10 +31,12 @@ class SimulationDemagRecoveryMixin:
             return self._demag_nodal_cache
 
         points = self._mesh_points()
-        simplices = np.asarray(self._require_mesh().simplices, dtype=int)
+        simplices = self._mesh_simplices()
         if simplices.size == 0:
+            nodal_h = np.zeros((len(points), 3), dtype=float)
+            nodal_h.setflags(write=False)
             self._demag_cache_token = token
-            self._demag_nodal_cache = np.zeros((len(points), 3), dtype=float)
+            self._demag_nodal_cache = nodal_h
             return self._demag_nodal_cache
         if simplices.ndim != 2 or simplices.shape[1] != 4:
             raise NotImplementedError("The demag MVP currently supports tetrahedral 3D meshes.")
@@ -61,25 +68,28 @@ class SimulationDemagRecoveryMixin:
                         weights,
                         len(points),
                     )
+        nodal_h.setflags(write=False)
         self._demag_cache_token = token
         self._demag_nodal_cache = nodal_h
         return nodal_h
 
     def _get_demag_cell_field(self) -> tuple[np.ndarray, np.ndarray]:
-        cache_started = time.perf_counter()
         token = self._demag_token()
         if self._demag_cell_cache_token == token and self._demag_cell_field_cache is not None:
-            self._record_active_subfield_array_timing(
-                "H_demag_detail:cell_field_cache_hit",
-                time.perf_counter() - cache_started,
-            )
+            if self._active_subfield_array_timings is not None:
+                self._record_active_subfield_array_timing(
+                    "H_demag_detail:cell_field_cache_hit",
+                    0.0,
+                )
             return self._demag_cell_field_cache
 
         points = self._mesh_points()
-        simplices = np.asarray(self._require_mesh().simplices, dtype=int)
+        simplices = self._mesh_simplices()
         if simplices.size == 0:
             cell_h = np.zeros((0, 3), dtype=float)
             volumes = np.zeros(0, dtype=float)
+            cell_h.setflags(write=False)
+            volumes.setflags(write=False)
             self._demag_cell_cache_token = token
             self._demag_cell_field_cache = (cell_h, volumes)
             return self._demag_cell_field_cache
@@ -94,6 +104,8 @@ class SimulationDemagRecoveryMixin:
             "H_demag_detail:cell_gradient",
         ):
             cell_h = self._cell_demag_from_potential(points, simplices, phi)
+        cell_h.setflags(write=False)
+        volumes.setflags(write=False)
         self._demag_cell_cache_token = token
         self._demag_cell_field_cache = (cell_h, volumes)
         return self._demag_cell_field_cache
@@ -167,18 +179,71 @@ class SimulationDemagRecoveryMixin:
         weights: np.ndarray,
         point_count: int,
     ) -> np.ndarray:
+        if len(simplices) == 0 or cell_h.size == 0:
+            return np.zeros((point_count, 3), dtype=float)
+        inputs_immutable = (
+            not simplices.flags.writeable
+            and not volumes.flags.writeable
+            and not weights.flags.writeable
+        )
+        if (
+            len(simplices) <= _RECOVERY_OPERATOR_MAX_SIMPLICES
+            and _selected_memory_mode() != "low"
+        ):
+            cached = self._demag_nodal_recovery_operator_cache
+            if (
+                inputs_immutable
+                and cached is not None
+                and cached[0] is simplices
+                and cached[1] is volumes
+                and cached[2] is weights
+                and cached[3] == point_count
+            ):
+                cell_to_node_weighted = cached[4]
+            else:
+                if np.any((simplices < 0) | (simplices >= point_count)):
+                    raise IndexError("simplex node index out of bounds")
+                from scipy import sparse
+
+                inv_weights = np.zeros(point_count, dtype=float)
+                present = weights > 0.0
+                inv_weights[present] = 1.0 / weights[present]
+                positive = volumes > 0.0
+                if np.any(positive):
+                    positive_indices = np.flatnonzero(positive)
+                    positive_simplices = simplices[positive_indices]
+                    positive_volumes = volumes[positive_indices]
+                    rows = positive_simplices.ravel()
+                    cols = np.repeat(positive_indices, 4)
+                    data = np.repeat(positive_volumes, 4) * inv_weights[rows]
+                    cell_to_node_weighted = sparse.csr_matrix(
+                        (data, (rows, cols)),
+                        shape=(point_count, len(simplices)),
+                    )
+                else:
+                    cell_to_node_weighted = sparse.csr_matrix(
+                        (point_count, len(simplices)),
+                        dtype=float,
+                    )
+                if inputs_immutable:
+                    self._demag_nodal_recovery_operator_cache = (
+                        simplices,
+                        volumes,
+                        weights,
+                        point_count,
+                        cell_to_node_weighted,
+                    )
+            return np.asarray(cell_to_node_weighted @ cell_h, dtype=float)
+
+        if np.any((simplices < 0) | (simplices >= point_count)):
+            raise IndexError("simplex node index out of bounds")
         nodal_h = np.zeros((point_count, 3), dtype=float)
         positive = volumes > 0.0
         if np.any(positive):
+            weighted_cells = cell_h[positive] * volumes[positive, np.newaxis]
             positive_simplices = simplices[positive]
-            weighted_cell_h = cell_h[positive] * volumes[positive, np.newaxis]
             for local_index in range(4):
-                np.add.at(
-                    nodal_h,
-                    positive_simplices[:, local_index],
-                    weighted_cell_h,
-                )
-
+                np.add.at(nodal_h, positive_simplices[:, local_index], weighted_cells)
         present = weights > 0.0
         nodal_h[present] /= weights[present, np.newaxis]
         return nodal_h

@@ -12,6 +12,21 @@ from ...support import MU0_OVER_4PI, _simulation_compatibility_binding
 class SimulationDemagProbeMixin:
     if TYPE_CHECKING:
         _demag_dipoles: tuple[np.ndarray, np.ndarray, float] | None
+        _demag_cell_gradient_inputs_cache: (
+            tuple[
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+            ]
+            | None
+        )
 
         def __getattr__(self, name: str) -> Any: ...
 
@@ -21,12 +36,45 @@ class SimulationDemagProbeMixin:
         simplices: np.ndarray,
         phi: np.ndarray,
     ) -> np.ndarray:
+        if len(simplices) == 0:
+            return np.zeros((0, 3), dtype=float)
         _, gradients_by_cell, _ = self._demag_fem_geometry_for_mesh(points, simplices)
-        return -np.einsum(
-            "ci,cij->cj",
-            phi[simplices],
-            gradients_by_cell,
-        )
+        inputs_immutable = not simplices.flags.writeable and not gradients_by_cell.flags.writeable
+        cached = self._demag_cell_gradient_inputs_cache
+        if (
+            inputs_immutable
+            and cached is not None
+            and cached[0] is simplices
+            and cached[1] is gradients_by_cell
+        ):
+            _, _, s0, s1, s2, s3, neg_g0, neg_g1, neg_g2, neg_g3 = cached
+        else:
+            s0 = np.ascontiguousarray(simplices[:, 0])
+            s1 = np.ascontiguousarray(simplices[:, 1])
+            s2 = np.ascontiguousarray(simplices[:, 2])
+            s3 = np.ascontiguousarray(simplices[:, 3])
+            neg_g0 = np.ascontiguousarray(-gradients_by_cell[:, 0])
+            neg_g1 = np.ascontiguousarray(-gradients_by_cell[:, 1])
+            neg_g2 = np.ascontiguousarray(-gradients_by_cell[:, 2])
+            neg_g3 = np.ascontiguousarray(-gradients_by_cell[:, 3])
+            if inputs_immutable:
+                self._demag_cell_gradient_inputs_cache = (
+                    simplices,
+                    gradients_by_cell,
+                    s0,
+                    s1,
+                    s2,
+                    s3,
+                    neg_g0,
+                    neg_g1,
+                    neg_g2,
+                    neg_g3,
+                )
+        out = phi[s0, np.newaxis] * neg_g0
+        out += phi[s1, np.newaxis] * neg_g1
+        out += phi[s2, np.newaxis] * neg_g2
+        out += phi[s3, np.newaxis] * neg_g3
+        return out
 
     def _build_demag_dipoles(self) -> tuple[np.ndarray, np.ndarray, float]:
         if "m" not in self._fields:
@@ -34,7 +82,7 @@ class SimulationDemagProbeMixin:
 
         points = self._mesh_points()
         mesh = self._require_mesh()
-        simplices = np.asarray(mesh.simplices, dtype=int)
+        simplices = self._mesh_simplices()
         if simplices.size == 0:
             return np.empty((0, 3)), np.empty((0, 3)), 1.0
         if simplices.ndim != 2 or simplices.shape[1] != 4:

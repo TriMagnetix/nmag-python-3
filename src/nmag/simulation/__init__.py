@@ -145,7 +145,11 @@ class Simulation(
         self.last_probe_timings_seconds: dict[str, float] = {}
         self.last_subfield_average_timings_seconds: dict[str, float] = {}
         self.last_maxangle_timings_seconds: dict[str, float] = {}
-        self.last_demag_solve_diagnostics: dict[str, float | int] = {}
+        self._last_demag_solve_diagnostics: dict[str, float | int] | None = {}
+        self._last_demag_solve_diagnostics_inputs: (
+            tuple[Any, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+            | None
+        ) = None
         self._last_bem_operator_stats: BemOperatorStats | None = None
         self.last_demag_internal_vectors: dict[str, np.ndarray] = {}
         self._active_subfield_array_timings: dict[str, float] | None = None
@@ -159,45 +163,78 @@ class Simulation(
         self.mat_of_mat_name: dict[str, Any] = {}
         self.materials: list[Any] = []
         self._fields: dict[str, Any] = {}
-        self._demag_cache_token: tuple[int, int] | None = None
+        self._demag_cache_token: tuple[int, ...] | None = None
         self._demag_dipoles: tuple[np.ndarray, np.ndarray, float] | None = None
         self._demag_nodal_cache: np.ndarray | None = None
-        self._demag_cell_cache_token: tuple[int, int] | None = None
+        self._demag_cell_cache_token: tuple[int, ...] | None = None
         self._demag_cell_field_cache: tuple[np.ndarray, np.ndarray] | None = None
         self._demag_geometry_cache_token: int | None = None
         self._demag_boundary_faces_cache: list[tuple[int, tuple[int, int, int]]] | None = None
         self._demag_bem_cache: tuple[str, np.ndarray, Any, BemOperatorStats] | None = None
-        self._demag_fem_geometry_cache: tuple[str, Any, np.ndarray, np.ndarray] | None = None
+        self._demag_bem_env_cache: tuple[Any, ...] | None = None
+        self._demag_fem_geometry_cache: (
+            tuple[str, np.ndarray, np.ndarray, Any, np.ndarray, np.ndarray] | None
+        ) = None
+        self._demag_fem_env_cache: tuple[Any, ...] | None = None
         self._demag_gauge_factorization_cache: ScipyLUFactorization | None = None
         self._demag_dirichlet_factorization_cache: (
-            tuple[np.ndarray, np.ndarray, ScipyLUFactorization] | None
+            tuple[np.ndarray, np.ndarray, Any, ScipyLUFactorization] | None
         ) = None
-        self._demag_ms_values_cache: tuple[int, np.ndarray] | None = None
-        self._demag_volume_charge_scales_cache: tuple[int, np.ndarray] | None = None
-        self._nodal_ms_values_cache: tuple[int, np.ndarray] | None = None
-        self._demag_aux_cache_token: tuple[int, int] | None = None
+        self._demag_nodal_recovery_operator_cache: (
+            tuple[np.ndarray, np.ndarray, np.ndarray, int, Any] | None
+        ) = None
+        self._demag_fem_divergence_operator_cache: (
+            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, Any] | None
+        ) = None
+        self._demag_cell_gradient_inputs_cache: (
+            tuple[
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+                np.ndarray,
+            ]
+            | None
+        ) = None
+        self._demag_ms_values_cache: tuple[int, int, Any, np.ndarray, np.ndarray] | None = None
+        self._demag_volume_charge_scales_cache: (
+            tuple[int, int, Any, np.ndarray, np.ndarray] | None
+        ) = None
+        self._nodal_ms_values_cache: tuple[tuple[int, int], np.ndarray] | None = None
+        self._demag_aux_cache_token: tuple[int, ...] | None = None
         self._demag_phi_cache: np.ndarray | None = None
         self._demag_rho_cache: np.ndarray | None = None
         self._demag_volumes_cache: np.ndarray | None = None
-        self._mesh_points_cache: tuple[int, np.ndarray] | None = None
+        self._mesh_points_cache: tuple[int, Any, int, np.ndarray] | None = None
+        self._mesh_simplices_cache: tuple[int, Any, int, np.ndarray] | None = None
         self._mesh_bounds_cache: tuple[int, np.ndarray, np.ndarray, np.ndarray] | None = None
         self._mesh_edge_cache: tuple[int, np.ndarray] | None = None
         self._simplex_volume_cache: tuple[int, np.ndarray, np.ndarray] | None = None
         self._volume_average_node_weights_cache: tuple[int, int, np.ndarray] | None = None
         self._incident_cell_volume_sums_cache: tuple[int, int, int, np.ndarray] | None = None
-        self._exchange_cache_token: tuple[int, int] | None = None
+        self._exchange_cache_token: tuple[int, ...] | None = None
         self._exchange_nodal_cache: np.ndarray | None = None
+        self._exchange_operator_cache: (
+            tuple[int, Any, np.ndarray, Any, Any, np.ndarray, bool, np.ndarray] | None
+        ) = None
         self._exchange_spectral_bound_cache: tuple[int, float] | None = None
-        self._nodal_material_coefficients_cache: tuple[int, NodalMaterialCoefficients] | None = None
+        self._nodal_material_coefficients_cache: (
+            tuple[tuple[int, int], NodalMaterialCoefficients] | None
+        ) = None
         self._nodal_anisotropy_groups_cache: (
-            tuple[int, tuple[NodalAnisotropyGroup, ...]] | None
+            tuple[tuple[int, int], tuple[NodalAnisotropyGroup, ...]] | None
         ) = None
         self._anisotropy_fields_cache: tuple[
-            tuple[int, int],
+            tuple[int, int, int],
             np.ndarray,
             np.ndarray,
         ] | None = None
-        self._llg_affine_operator_cache: tuple[int, np.ndarray] | None = None
+        self._llg_affine_operator_cache: tuple[tuple[int, int, bool], np.ndarray] | None = None
         self._probe_geometry_cache_token: int | None = None
         self._probe_tetrahedral_cache: (
             tuple[

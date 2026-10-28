@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -12,6 +12,8 @@ from ..support import (
     DERIVED_FIELD_NAMES,
     _copy_average_value,
 )
+
+_NULL_TIMING_CONTEXT: AbstractContextManager[None] = nullcontext()
 
 
 class SimulationFieldArrayMixin:
@@ -23,21 +25,30 @@ class SimulationFieldArrayMixin:
         def __getattr__(self, name: str) -> Any: ...
 
     def _subfield_array(self, subfieldname: str) -> np.ndarray:
+        cache = self._subfield_array_cache
+        if self._active_subfield_array_timings is None:
+            if cache is not None and subfieldname in cache:
+                return cache[subfieldname]
+            data = self._compute_subfield_array(subfieldname)
+            if cache is not None:
+                cache[subfieldname] = data
+            return data
+
         started = time.perf_counter()
-        if self._subfield_array_cache is not None and subfieldname in self._subfield_array_cache:
+        if cache is not None and subfieldname in cache:
             self._record_active_subfield_array_timing(
                 f"{subfieldname}:cache_hit",
                 time.perf_counter() - started,
             )
-            return self._subfield_array_cache[subfieldname]
+            return cache[subfieldname]
 
         data = self._compute_subfield_array(subfieldname)
         self._record_active_subfield_array_timing(
             f"{subfieldname}:compute",
             time.perf_counter() - started,
         )
-        if self._subfield_array_cache is not None:
-            self._subfield_array_cache[subfieldname] = data
+        if cache is not None:
+            cache[subfieldname] = data
         return data
 
     def _record_active_subfield_array_timing(self, name: str, seconds: float) -> None:
@@ -45,8 +56,16 @@ class SimulationFieldArrayMixin:
         if timings is not None:
             timings[name] = timings.get(name, 0.0) + seconds
 
+    def _record_active_subfield_array_timing_block(
+        self,
+        name: str,
+    ) -> AbstractContextManager[None]:
+        if self._active_subfield_array_timings is None:
+            return _NULL_TIMING_CONTEXT
+        return self._timed_subfield_array_block(name)
+
     @contextmanager
-    def _record_active_subfield_array_timing_block(self, name: str) -> Generator[None]:
+    def _timed_subfield_array_block(self, name: str) -> Generator[None]:
         started = time.perf_counter()
         try:
             yield

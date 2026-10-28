@@ -11,6 +11,9 @@ use crate::common::{
     Vec3,
 };
 
+const PARALLEL_FEM_REDUCE_MIN_CELLS: usize = 65_536;
+const PARALLEL_FEM_CHUNK_CELLS: usize = 4_096;
+
 pub(crate) type FemGeometryResult<'py> = PyResult<(
     Bound<'py, PyArray2<f64>>,
     Bound<'py, PyArray3<f64>>,
@@ -55,10 +58,17 @@ pub(crate) fn build_demag_fem_geometry<'py>(
         ]);
     }
 
-    let cell_geometries: Vec<Option<FemCellGeometry>> = simplex_indices
-        .par_iter()
-        .map(|simplex| fem_cell_geometry(points, *simplex))
-        .collect();
+    let cell_geometries: Vec<Option<FemCellGeometry>> = if should_parallelise(cell_count) {
+        simplex_indices
+            .par_iter()
+            .map(|simplex| fem_cell_geometry(points, *simplex))
+            .collect()
+    } else {
+        simplex_indices
+            .iter()
+            .map(|simplex| fem_cell_geometry(points, *simplex))
+            .collect()
+    };
 
     for (cell_index, cell_geometry) in cell_geometries.into_iter().enumerate() {
         let Some(cell_geometry) = cell_geometry else {
@@ -134,53 +144,67 @@ pub(crate) fn build_demag_fem_divergence<'py>(
     }
 
     let cell_count = simplices.shape()[0];
-    let mut simplex_indices: Vec<[usize; 4]> = Vec::with_capacity(cell_count);
-    for cell_index in 0..cell_count {
-        simplex_indices.push([
-            checked_index(simplices[[cell_index, 0]], point_count, "simplex node")?,
-            checked_index(simplices[[cell_index, 1]], point_count, "simplex node")?,
-            checked_index(simplices[[cell_index, 2]], point_count, "simplex node")?,
-            checked_index(simplices[[cell_index, 3]], point_count, "simplex node")?,
-        ]);
+    if cell_count >= PARALLEL_FEM_REDUCE_MIN_CELLS && should_parallelise(cell_count) {
+        let mut simplex_indices: Vec<[usize; 4]> = Vec::with_capacity(cell_count);
+        for cell_index in 0..cell_count {
+            simplex_indices.push([
+                checked_index(simplices[[cell_index, 0]], point_count, "simplex node")?,
+                checked_index(simplices[[cell_index, 1]], point_count, "simplex node")?,
+                checked_index(simplices[[cell_index, 2]], point_count, "simplex node")?,
+                checked_index(simplices[[cell_index, 3]], point_count, "simplex node")?,
+            ]);
+        }
+        let divergence = simplex_indices
+            .par_chunks(PARALLEL_FEM_CHUNK_CELLS)
+            .enumerate()
+            .fold(
+                || vec![0.0; point_count],
+                |mut local, (chunk_idx, chunk)| {
+                    let base_cell = chunk_idx * PARALLEL_FEM_CHUNK_CELLS;
+                    for (offset, &[s0, s1, s2, s3]) in chunk.iter().enumerate() {
+                        let cell_index = base_cell + offset;
+                        let scale = 0.25 * ms_values[cell_index] * volumes[cell_index];
+                        let avg_mx = (m[[s0, 0]] + m[[s1, 0]] + m[[s2, 0]] + m[[s3, 0]]) * scale;
+                        let avg_my = (m[[s0, 1]] + m[[s1, 1]] + m[[s2, 1]] + m[[s3, 1]]) * scale;
+                        let avg_mz = (m[[s0, 2]] + m[[s1, 2]] + m[[s2, 2]] + m[[s3, 2]]) * scale;
+                        for (local_index, point_index) in [s0, s1, s2, s3].into_iter().enumerate() {
+                            local[point_index] +=
+                                gradients_by_cell[[cell_index, local_index, 0]] * avg_mx
+                                    + gradients_by_cell[[cell_index, local_index, 1]] * avg_my
+                                    + gradients_by_cell[[cell_index, local_index, 2]] * avg_mz;
+                        }
+                    }
+                    local
+                },
+            )
+            .reduce(
+                || vec![0.0; point_count],
+                |mut left, right| {
+                    for (l, r) in left.iter_mut().zip(right.into_iter()) {
+                        *l += r;
+                    }
+                    left
+                },
+            );
+        return Ok(Array1::from_vec(divergence).into_pyarray(py));
     }
 
-    let cell_contribution = |cell_index: usize| {
-        let simplex = simplex_indices[cell_index];
-        let ms = ms_values[cell_index];
-        let mut average_m = [0.0; 3];
-        for point_index in simplex {
-            for component in 0..3 {
-                average_m[component] += m[[point_index, component]] * ms;
-            }
-        }
-        for component in &mut average_m {
-            *component *= 0.25;
-        }
-
-        let mut contributions = [0.0; 4];
-        for local_index in 0..4 {
-            let gradient = [
-                gradients_by_cell[[cell_index, local_index, 0]],
-                gradients_by_cell[[cell_index, local_index, 1]],
-                gradients_by_cell[[cell_index, local_index, 2]],
-            ];
-            contributions[local_index] = volumes[cell_index] * dot3(gradient, average_m);
-        }
-        (simplex, contributions)
-    };
-    let cell_contributions: Vec<([usize; 4], [f64; 4])> = if should_parallelise(cell_count) {
-        (0..cell_count)
-            .into_par_iter()
-            .map(cell_contribution)
-            .collect()
-    } else {
-        (0..cell_count).map(cell_contribution).collect()
-    };
-
     let mut divergence = vec![0.0; point_count];
-    for (simplex, contributions) in cell_contributions {
-        for local_index in 0..4 {
-            divergence[simplex[local_index]] += contributions[local_index];
+    for cell_index in 0..cell_count {
+        let s0 = checked_index(simplices[[cell_index, 0]], point_count, "simplex node")?;
+        let s1 = checked_index(simplices[[cell_index, 1]], point_count, "simplex node")?;
+        let s2 = checked_index(simplices[[cell_index, 2]], point_count, "simplex node")?;
+        let s3 = checked_index(simplices[[cell_index, 3]], point_count, "simplex node")?;
+        let simplex = [s0, s1, s2, s3];
+        let scale = 0.25 * ms_values[cell_index] * volumes[cell_index];
+        let avg_mx = (m[[s0, 0]] + m[[s1, 0]] + m[[s2, 0]] + m[[s3, 0]]) * scale;
+        let avg_my = (m[[s0, 1]] + m[[s1, 1]] + m[[s2, 1]] + m[[s3, 1]]) * scale;
+        let avg_mz = (m[[s0, 2]] + m[[s1, 2]] + m[[s2, 2]] + m[[s3, 2]]) * scale;
+
+        for (local_index, &point_index) in simplex.iter().enumerate() {
+            divergence[point_index] += gradients_by_cell[[cell_index, local_index, 0]] * avg_mx
+                + gradients_by_cell[[cell_index, local_index, 1]] * avg_my
+                + gradients_by_cell[[cell_index, local_index, 2]] * avg_mz;
         }
     }
 
@@ -219,60 +243,87 @@ pub(crate) fn recover_demag_nodal_field<'py>(
     }
 
     let cell_count = simplices.shape()[0];
-    let mut simplex_indices: Vec<[usize; 4]> = Vec::with_capacity(cell_count);
-    for cell_index in 0..cell_count {
-        simplex_indices.push([
-            checked_index(simplices[[cell_index, 0]], point_count, "simplex node")?,
-            checked_index(simplices[[cell_index, 1]], point_count, "simplex node")?,
-            checked_index(simplices[[cell_index, 2]], point_count, "simplex node")?,
-            checked_index(simplices[[cell_index, 3]], point_count, "simplex node")?,
-        ]);
-    }
-
-    let cell_contribution = |cell_index: usize| {
-        let volume = volumes[cell_index];
-        if volume <= 0.0 {
-            return None;
+    let nodal_len = point_count
+        .checked_mul(3)
+        .ok_or_else(|| PyValueError::new_err("point_count overflow"))?;
+    let mut nodal_h = if cell_count >= PARALLEL_FEM_REDUCE_MIN_CELLS && should_parallelise(cell_count)
+    {
+        let mut simplex_indices: Vec<[usize; 4]> = Vec::with_capacity(cell_count);
+        for cell_index in 0..cell_count {
+            simplex_indices.push([
+                checked_index(simplices[[cell_index, 0]], point_count, "simplex node")?,
+                checked_index(simplices[[cell_index, 1]], point_count, "simplex node")?,
+                checked_index(simplices[[cell_index, 2]], point_count, "simplex node")?,
+                checked_index(simplices[[cell_index, 3]], point_count, "simplex node")?,
+            ]);
         }
-        Some((
-            simplex_indices[cell_index],
-            [
-                cell_h[[cell_index, 0]] * volume,
-                cell_h[[cell_index, 1]] * volume,
-                cell_h[[cell_index, 2]] * volume,
-            ],
-        ))
-    };
-    let cell_contributions: Vec<Option<([usize; 4], Vec3)>> = if should_parallelise(cell_count) {
-        (0..cell_count)
-            .into_par_iter()
-            .map(cell_contribution)
-            .collect()
+        simplex_indices
+            .par_chunks(PARALLEL_FEM_CHUNK_CELLS)
+            .enumerate()
+            .fold(
+                || vec![0.0; nodal_len],
+                |mut local, (chunk_idx, chunk)| {
+                    let base_cell = chunk_idx * PARALLEL_FEM_CHUNK_CELLS;
+                    for (offset, &[s0, s1, s2, s3]) in chunk.iter().enumerate() {
+                        let cell_index = base_cell + offset;
+                        let volume = volumes[cell_index];
+                        if !(volume > 0.0) {
+                            continue;
+                        }
+                        let wx = cell_h[[cell_index, 0]] * volume;
+                        let wy = cell_h[[cell_index, 1]] * volume;
+                        let wz = cell_h[[cell_index, 2]] * volume;
+                        for point_index in [s0, s1, s2, s3] {
+                            let base = point_index * 3;
+                            local[base] += wx;
+                            local[base + 1] += wy;
+                            local[base + 2] += wz;
+                        }
+                    }
+                    local
+                },
+            )
+            .reduce(
+                || vec![0.0; nodal_len],
+                |mut left, right| {
+                    for (l, r) in left.iter_mut().zip(right.into_iter()) {
+                        *l += r;
+                    }
+                    left
+                },
+            )
     } else {
-        (0..cell_count).map(cell_contribution).collect()
-    };
-
-    let mut nodal_h = vec![0.0; point_count * 3];
-    for local_index in 0..4 {
-        for contribution in &cell_contributions {
-            let Some((simplex, weighted_h)) = contribution else {
+        let mut sequential = vec![0.0; nodal_len];
+        for cell_index in 0..cell_count {
+            let s0 = checked_index(simplices[[cell_index, 0]], point_count, "simplex node")?;
+            let s1 = checked_index(simplices[[cell_index, 1]], point_count, "simplex node")?;
+            let s2 = checked_index(simplices[[cell_index, 2]], point_count, "simplex node")?;
+            let s3 = checked_index(simplices[[cell_index, 3]], point_count, "simplex node")?;
+            let volume = volumes[cell_index];
+            if !(volume > 0.0) {
                 continue;
-            };
-            let point_index = simplex[local_index];
-            let base = point_index * 3;
-            for component in 0..3 {
-                nodal_h[base + component] += weighted_h[component];
+            }
+            let wx = cell_h[[cell_index, 0]] * volume;
+            let wy = cell_h[[cell_index, 1]] * volume;
+            let wz = cell_h[[cell_index, 2]] * volume;
+            for point_index in [s0, s1, s2, s3] {
+                let base = point_index * 3;
+                sequential[base] += wx;
+                sequential[base + 1] += wy;
+                sequential[base + 2] += wz;
             }
         }
-    }
+        sequential
+    };
 
     for point_index in 0..point_count {
         let weight = weights[point_index];
         if weight > 0.0 {
+            let inv_weight = 1.0 / weight;
             let base = point_index * 3;
-            for component in 0..3 {
-                nodal_h[base + component] /= weight;
-            }
+            nodal_h[base] *= inv_weight;
+            nodal_h[base + 1] *= inv_weight;
+            nodal_h[base + 2] *= inv_weight;
         }
     }
 
@@ -299,35 +350,51 @@ pub(crate) fn demag_cell_field_average<'py>(
         ));
     }
 
-    let (weighted_sum, total_volume) = (0..cell_h.shape()[0])
-        .into_par_iter()
-        .filter_map(|cell_index| {
-            let volume = volumes[cell_index];
-            if volume <= 0.0 {
-                return None;
-            }
-            Some((
-                [
-                    cell_h[[cell_index, 0]] * volume,
-                    cell_h[[cell_index, 1]] * volume,
-                    cell_h[[cell_index, 2]] * volume,
-                ],
-                volume,
-            ))
-        })
-        .reduce(
-            || ([0.0, 0.0, 0.0], 0.0),
-            |left, right| {
-                (
+    let cell_count = cell_h.shape()[0];
+    let (weighted_sum, total_volume) = if should_parallelise(cell_count) {
+        (0..cell_count)
+            .into_par_iter()
+            .filter_map(|cell_index| {
+                let volume = volumes[cell_index];
+                if !(volume > 0.0) {
+                    return None;
+                }
+                Some((
                     [
-                        left.0[0] + right.0[0],
-                        left.0[1] + right.0[1],
-                        left.0[2] + right.0[2],
+                        cell_h[[cell_index, 0]] * volume,
+                        cell_h[[cell_index, 1]] * volume,
+                        cell_h[[cell_index, 2]] * volume,
                     ],
-                    left.1 + right.1,
-                )
-            },
-        );
+                    volume,
+                ))
+            })
+            .reduce(
+                || ([0.0, 0.0, 0.0], 0.0),
+                |left, right| {
+                    (
+                        [
+                            left.0[0] + right.0[0],
+                            left.0[1] + right.0[1],
+                            left.0[2] + right.0[2],
+                        ],
+                        left.1 + right.1,
+                    )
+                },
+            )
+    } else {
+        let mut sum = [0.0, 0.0, 0.0];
+        let mut total_vol = 0.0;
+        for cell_index in 0..cell_count {
+            let volume = volumes[cell_index];
+            if volume > 0.0 {
+                sum[0] += cell_h[[cell_index, 0]] * volume;
+                sum[1] += cell_h[[cell_index, 1]] * volume;
+                sum[2] += cell_h[[cell_index, 2]] * volume;
+                total_vol += volume;
+            }
+        }
+        (sum, total_vol)
+    };
 
     let average = if total_volume > 0.0 {
         [

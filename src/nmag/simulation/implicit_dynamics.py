@@ -87,7 +87,11 @@ def _validate_diffsol_dense_memory(state_size: int) -> None:
 
 def build_affine_field_operator(simulation: Any) -> FloatArray:
     """Build the dense linear map from nodal m to demag plus exchange field."""
-    mesh_token = simulation._mesh_geometry_token()
+    mesh_token = (
+        simulation._mesh_geometry_token(),
+        simulation._material_state_token(),
+        bool(simulation.do_demag),
+    )
     cached = simulation._llg_affine_operator_cache
     if cached is not None and cached[0] == mesh_token:
         return cached[1]
@@ -118,6 +122,7 @@ def build_affine_field_operator(simulation: Any) -> FloatArray:
         simulation._invalidate_demag()
 
     operator = np.ascontiguousarray(operator)
+    operator.setflags(write=False)
     simulation._llg_affine_operator_cache = (mesh_token, operator)
     return operator
 

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import os
 import time
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
 from ....backends import (
+    DEMAG_BEM_AUTO_MATRIX_FREE_MIN_BOUNDARY_NODES_ENV,
+    DEMAG_BEM_STORAGE_BACKEND_ENV,
+    MEMORY_MODE_ENV,
     _load_rust_accelerator,
     _selected_demag_bem_storage_backend,
     _selected_lindholm_bem_backend,
@@ -24,7 +28,8 @@ from .hierarchical import build_hierarchical_lindholm_operator
 
 class SimulationDemagBemOperatorMixin:
     if TYPE_CHECKING:
-        _demag_bem_cache: Any | None
+        _demag_bem_cache: tuple[str, np.ndarray, Any, Any] | None
+        _demag_bem_env_cache: tuple[Any, ...] | None
 
         def __getattr__(self, name: str) -> Any: ...
 
@@ -37,12 +42,40 @@ class SimulationDemagBemOperatorMixin:
         cache_started = time.perf_counter()
         token = self._mesh_geometry_token()
         self._ensure_demag_geometry_cache_token(token)
-        boundary_node_count = len({node for _, face in boundary_faces for node in face})
         config = getattr(self, "config", None)
-        storage_backend = _selected_demag_bem_storage_backend(boundary_node_count, config)
-        if self._demag_bem_cache is not None:
+        lindholm_backend = _selected_lindholm_bem_backend(config)
+        hierarchical_cfg = getattr(config, "hierarchical_bem", None)
+        env_key = (
+            getattr(config, "demag_bem_storage", None),
+            hierarchical_cfg,
+            lindholm_backend,
+            os.environ.get(DEMAG_BEM_STORAGE_BACKEND_ENV),
+            os.environ.get(MEMORY_MODE_ENV),
+            os.environ.get(DEMAG_BEM_AUTO_MATRIX_FREE_MIN_BOUNDARY_NODES_ENV),
+        )
+        if self._demag_bem_cache is not None and self._demag_bem_env_cache == env_key:
             cached_backend, boundary_nodes, operator, stats = self._demag_bem_cache
-            if cached_backend == storage_backend:
+            cache_kind = "matrix" if cached_backend == "dense" else "operator"
+            self._last_bem_operator_stats = stats
+            self._record_active_subfield_array_timing(
+                f"demag_auxiliary:bem_{cache_kind}_cache_hit",
+                time.perf_counter() - cache_started,
+            )
+            return boundary_nodes, operator
+
+        boundary_node_count = (
+            len(self._demag_bem_cache[1])
+            if self._demag_bem_cache is not None
+            else len({node for _, face in boundary_faces for node in face})
+        )
+        storage_backend = _selected_demag_bem_storage_backend(boundary_node_count, config)
+        if self._demag_bem_cache is not None and self._demag_bem_env_cache is not None:
+            cached_backend, boundary_nodes, operator, stats = self._demag_bem_cache
+            if (
+                cached_backend == storage_backend
+                and self._demag_bem_env_cache[1:3] == (hierarchical_cfg, lindholm_backend)
+            ):
+                self._demag_bem_env_cache = env_key
                 cache_kind = "matrix" if storage_backend == "dense" else "operator"
                 self._last_bem_operator_stats = stats
                 self._record_active_subfield_array_timing(
@@ -89,6 +122,7 @@ class SimulationDemagBemOperatorMixin:
         self._last_bem_operator_stats = stats
         self._demag_boundary_faces_cache = boundary_faces
         self._demag_bem_cache = (storage_backend, boundary_nodes, bem, stats)
+        self._demag_bem_env_cache = env_key
         return boundary_nodes, cast(Any, bem)
 
     def _build_lindholm_bem_operator(
