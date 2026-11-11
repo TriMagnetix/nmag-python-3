@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -10,6 +11,42 @@ from ..support import (
     MU0,
     _simulation_compatibility_binding,
 )
+
+_is_uniform_within_atol_kernel: Callable[[np.ndarray, float], bool] | None = None
+
+
+def _is_uniform_within_atol_raw(m: np.ndarray, atol: float) -> bool:
+    n = m.shape[0]
+    if n == 0:
+        return False
+    m00 = m[0, 0]
+    m01 = m[0, 1]
+    m02 = m[0, 2]
+    if not (np.isfinite(m00) and np.isfinite(m01) and np.isfinite(m02)):
+        return False
+    for i in range(1, n):
+        if not (
+            abs(m[i, 0] - m00) <= atol
+            and abs(m[i, 1] - m01) <= atol
+            and abs(m[i, 2] - m02) <= atol
+        ):
+            return False
+    return True
+
+
+def _get_is_uniform_within_atol_kernel() -> Callable[[np.ndarray, float], bool] | None:
+    global _is_uniform_within_atol_kernel
+    if _is_uniform_within_atol_kernel is not None:
+        return _is_uniform_within_atol_kernel
+    try:
+        from numba import njit
+    except ImportError:  # pragma: no cover - numba is a core dependency.
+        return None
+    _is_uniform_within_atol_kernel = cast(
+        Callable[[np.ndarray, float], bool],
+        njit(cache=True)(_is_uniform_within_atol_raw),
+    )
+    return _is_uniform_within_atol_kernel
 
 
 class SimulationFieldDerivedMixin:
@@ -47,10 +84,10 @@ class SimulationFieldDerivedMixin:
         return resolver(point_count)
 
     def _derived_pin(self, point_count: int) -> np.ndarray:
-        return np.asarray(
-            self._fields.get("pin", np.ones(point_count, dtype=float)),
-            dtype=float,
-        )
+        pin = self._fields.get("pin")
+        if pin is not None:
+            return np.asarray(pin, dtype=float)
+        return np.ones(point_count, dtype=float)
 
     def _derived_phi(self, point_count: int) -> np.ndarray:
         if not self.do_demag:
@@ -106,12 +143,52 @@ class SimulationFieldDerivedMixin:
         return np.asarray(self._fields["m"], dtype=float) * self._nodal_ms_values()[:, np.newaxis]
 
     def _derived_h_total(self, _point_count: int) -> np.ndarray:
-        h_total = np.asarray(self._subfield_array("H_ext"), dtype=float)
+        if (
+            getattr(self, "_rhs_cached_tokens", None) is not None
+            and getattr(self, "_subfield_array_cache", None) is None
+            and getattr(self, "_active_subfield_array_timings", None) is None
+        ):
+            h_ext_raw = self._fields.get("H_ext")
+            h_accum: np.ndarray | None = None
+            if h_ext_raw is not None:
+                h_ext_vec = np.asarray(h_ext_raw, dtype=float)
+                if h_ext_vec.shape != (3,):
+                    raise ValueError(
+                        f"H_ext must be a homogeneous 3-vector, got shape {h_ext_vec.shape}."
+                    )
+                if h_ext_vec[0] != 0.0 or h_ext_vec[1] != 0.0 or h_ext_vec[2] != 0.0:
+                    h_accum = np.broadcast_to(h_ext_vec, (_point_count, 3)).copy()
+            if self.do_demag:
+                h_demag = np.asarray(self._get_demag_nodal_field(), dtype=float)
+                if h_accum is None:
+                    h_accum = h_demag.copy()
+                else:
+                    h_accum += h_demag
+            if not self._anisotropy_is_zero_by_construction():
+                h_anis, _ = self._get_anisotropy_fields()
+                if h_accum is None:
+                    h_accum = h_anis.copy()
+                else:
+                    h_accum += h_anis
+            h_exch = np.asarray(self._get_exchange_nodal_field(), dtype=float)
+            if h_accum is None:
+                return h_exch
+            h_accum += h_exch
+            return h_accum
+
+        h_ext = np.asarray(self._subfield_array("H_ext"), dtype=float)
+        cache = getattr(self, "_subfield_array_cache", None)
+        h_total = (
+            np.array(h_ext, dtype=float, copy=True)
+            if (not h_ext.flags.writeable or (cache is not None and cache.get("H_ext") is h_ext))
+            else h_ext
+        )
         if self.do_demag:
-            h_total = h_total + np.asarray(self._subfield_array("H_demag"), dtype=float)
+            h_total += np.asarray(self._subfield_array("H_demag"), dtype=float)
         if not self._anisotropy_is_zero_by_construction():
-            h_total = h_total + self._subfield_array("H_anis")
-        return h_total + self._subfield_array("H_exch")
+            h_total += self._subfield_array("H_anis")
+        h_total += self._subfield_array("H_exch")
+        return h_total
 
     def _derived_e_anis(self, point_count: int) -> np.ndarray:
         _field, energy = self._get_anisotropy_fields()
@@ -163,6 +240,10 @@ class SimulationFieldDerivedMixin:
         m = np.asarray(self._fields["m"], dtype=float)
         if m.ndim != 2 or len(m) == 0:
             return False
+        if m.shape[1] == 3 and m.dtype == np.float64:
+            kernel = _get_is_uniform_within_atol_kernel()
+            if kernel is not None:
+                return bool(kernel(m, 1.0e-12))
         if len(m) > 1 and np.max(np.abs(m[1] - m[0])) > 1.0e-12:
             return False
         return bool(np.allclose(m, m[0], rtol=0.0, atol=1.0e-12))

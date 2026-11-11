@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 
 from si.physical import SI
 
-from ...backends import _selected_llg_backend
+from ...backends import _demag_internal_trace_enabled, _selected_llg_backend
 from ...dynamics import (
     DEFAULT_STOPPING_DM_DT,
     ConvergenceTracker,
@@ -59,6 +59,9 @@ class SimulationIntegratorSetupMixin:
         _integrator_effective_max_step_seconds: float
         _last_integrator_stats: IntegratorStats
         _stage_wall_started: float
+        _rhs_cached_tokens: tuple[int, int] | None
+        _rhs_trace_enabled: bool
+        _rhs_unit_scale_cache: np.ndarray | None
 
         def __getattr__(self, name: str) -> Any: ...
 
@@ -160,41 +163,55 @@ class SimulationIntegratorSetupMixin:
 
         self._fields["m"] = m
         self._invalidate_demag()
-        h_total = self._subfield_array("H_total")
-        pin = self._subfield_array("pin")
-        unit_scale = np.ones(len(m), dtype=float)
-        coefficients = self._nodal_material_coefficients()
-        dm_dcurrent = self._get_dm_dcurrent() if "current_density" in self._fields else None
-        backend = _simulation_compatibility_binding("_selected_llg_backend", _selected_llg_backend)(
-            len(m), getattr(self, "config", None)
-        )
-        with np.errstate(over="ignore", invalid="ignore"):
-            if backend == "rust":
-                derivative = self._llg_rhs_rust(
-                    m,
-                    h_total,
-                    pin,
-                    unit_scale,
-                    coefficients.precession,
-                    coefficients.damping,
-                    coefficients.normalisation,
-                    dm_dcurrent,
-                    coefficients.stt_adiabatic,
-                    coefficients.stt_nonadiabatic,
-                )
-            else:
-                derivative = self._llg_rhs_python(
-                    m,
-                    h_total,
-                    pin,
-                    unit_scale,
-                    coefficients.precession,
-                    coefficients.damping,
-                    coefficients.normalisation,
-                    dm_dcurrent,
-                    coefficients.stt_adiabatic,
-                    coefficients.stt_nonadiabatic,
-                )
+        outer_tokens = self._rhs_cached_tokens
+        if outer_tokens is None:
+            self._rhs_cached_tokens = (
+                self._mesh_geometry_token(),
+                self._material_state_token(),
+            )
+            self._rhs_trace_enabled = _demag_internal_trace_enabled()
+        try:
+            h_total = self._subfield_array("H_total")
+            pin = self._subfield_array("pin")
+            unit_scale = self._rhs_unit_scale_cache
+            if unit_scale is None or len(unit_scale) != len(m):
+                unit_scale = np.ones(len(m), dtype=float)
+                unit_scale.setflags(write=False)
+                self._rhs_unit_scale_cache = unit_scale
+            coefficients = self._nodal_material_coefficients()
+            dm_dcurrent = self._get_dm_dcurrent() if "current_density" in self._fields else None
+            backend = _simulation_compatibility_binding(
+                "_selected_llg_backend", _selected_llg_backend
+            )(len(m), getattr(self, "config", None))
+            with np.errstate(over="ignore", invalid="ignore"):
+                if backend == "rust":
+                    derivative = self._llg_rhs_rust(
+                        m,
+                        h_total,
+                        pin,
+                        unit_scale,
+                        coefficients.precession,
+                        coefficients.damping,
+                        coefficients.normalisation,
+                        dm_dcurrent,
+                        coefficients.stt_adiabatic,
+                        coefficients.stt_nonadiabatic,
+                    )
+                else:
+                    derivative = self._llg_rhs_python(
+                        m,
+                        h_total,
+                        pin,
+                        unit_scale,
+                        coefficients.precession,
+                        coefficients.damping,
+                        coefficients.normalisation,
+                        dm_dcurrent,
+                        coefficients.stt_adiabatic,
+                        coefficients.stt_nonadiabatic,
+                    )
+        finally:
+            self._rhs_cached_tokens = outer_tokens
         if not np.all(np.isfinite(derivative)):
             raise FloatingPointError("The LLG right-hand side produced non-finite values.")
         return np.ravel(np.asarray(derivative, dtype=np.float64))

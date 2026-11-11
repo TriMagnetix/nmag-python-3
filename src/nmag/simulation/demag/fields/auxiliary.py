@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import ctypes
+import os
+from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -11,6 +15,73 @@ from ....backends import (
 from ....demag import _demag_solve_diagnostics, _solve_gauge_fixed
 from ....demag.linear import _factorize_gauge_fixed, _is_sparse_matrix, _solve_sparse_gauge_fixed
 from ...support import LEGACY_RHO_BOXED_VOLUME_M3
+
+_DENSE_BEM_THREAD_CAP_MAX_NODES = 4096
+_DENSE_BEM_MAX_OPENBLAS_THREADS = 2
+_openblas_thread_Accessors: tuple[Callable[[], int], Callable[[int], object]] | None = None
+_openblas_probed = False
+
+
+def _get_openblas_thread_accessors() -> (
+    tuple[Callable[[], int], Callable[[int], object]] | None
+):
+    global _openblas_probed, _openblas_thread_Accessors
+    if _openblas_probed:
+        return _openblas_thread_Accessors
+    _openblas_probed = True
+
+    candidates: list[Path] = []
+    np_file = getattr(np, "__file__", None)
+    if np_file is not None:
+        np_dir = Path(np_file).resolve().parent
+        for folder in (np_dir.parent / "numpy.libs", np_dir / ".libs"):
+            if folder.is_dir():
+                candidates.extend(sorted(folder.glob("lib*openblas*.so*")))
+                candidates.extend(sorted(folder.glob("lib*openblas*.dylib*")))
+
+    symbol_pairs = (
+        ("scipy_openblas_get_num_threads64_", "scipy_openblas_set_num_threads64_"),
+        ("scipy_openblas_get_num_threads", "scipy_openblas_set_num_threads"),
+        ("openblas_get_num_threads64_", "openblas_set_num_threads64_"),
+        ("openblas_get_num_threads", "openblas_set_num_threads"),
+    )
+    for lib_path in candidates:
+        try:
+            lib = ctypes.CDLL(str(lib_path))
+        except OSError:
+            continue
+        for get_name, set_name in symbol_pairs:
+            get_fn = getattr(lib, get_name, None)
+            set_fn = getattr(lib, set_name, None)
+            if get_fn is not None and set_fn is not None:
+                get_fn.argtypes = []
+                get_fn.restype = ctypes.c_int
+                set_fn.argtypes = [ctypes.c_int]
+                set_fn.restype = None
+                _openblas_thread_Accessors = (get_fn, set_fn)
+                return _openblas_thread_Accessors
+    return None
+
+
+def _apply_bem_operator(bem: Any, boundary_phi1: np.ndarray) -> np.ndarray:
+    if (
+        isinstance(bem, np.ndarray)
+        and bem.ndim == 2
+        and bem.shape[0] <= _DENSE_BEM_THREAD_CAP_MAX_NODES
+        and "OPENBLAS_NUM_THREADS" not in os.environ
+        and "OMP_NUM_THREADS" not in os.environ
+    ):
+        accessors = _get_openblas_thread_accessors()
+        if accessors is not None:
+            get_threads, set_threads = accessors
+            previous_threads = int(get_threads())
+            if previous_threads > _DENSE_BEM_MAX_OPENBLAS_THREADS:
+                set_threads(_DENSE_BEM_MAX_OPENBLAS_THREADS)
+                try:
+                    return bem @ boundary_phi1
+                finally:
+                    set_threads(previous_threads)
+    return bem @ boundary_phi1
 
 
 class SimulationDemagAuxiliaryMixin:
@@ -138,7 +209,12 @@ class SimulationDemagAuxiliaryMixin:
         with self._record_active_subfield_array_timing_block(
             "demag_auxiliary:gauge_solve",
         ):
-            if _is_sparse_matrix(stiffness):
+            if (
+                getattr(self, "_rhs_cached_tokens", None) is not None
+                and self._demag_gauge_factorization_cache is not None
+            ):
+                phi1 = self._demag_gauge_factorization_cache.solve_gauge(divergence)
+            elif _is_sparse_matrix(stiffness):
                 phi1 = _solve_sparse_gauge_fixed(
                     stiffness,
                     divergence,
@@ -164,13 +240,11 @@ class SimulationDemagAuxiliaryMixin:
                 simplices,
                 boundary_faces,
             )
-        phi2 = np.zeros(len(points), dtype=float)
-        phi2_boundary = np.zeros(len(boundary_nodes), dtype=float)
         if len(boundary_nodes) > 0:
             with self._record_active_subfield_array_timing_block(
                 "demag_auxiliary:bem_multiply",
             ):
-                phi2_boundary = bem @ phi1[boundary_nodes]
+                phi2_boundary = _apply_bem_operator(bem, phi1[boundary_nodes])
             with self._record_active_subfield_array_timing_block(
                 "demag_auxiliary:dirichlet_extension",
             ):
@@ -179,6 +253,9 @@ class SimulationDemagAuxiliaryMixin:
                     boundary_nodes,
                     phi2_boundary,
                 )
+        else:
+            phi2 = np.zeros(len(points), dtype=float)
+            phi2_boundary = np.zeros(0, dtype=float)
         phi = phi1 + phi2
         self._last_demag_solve_diagnostics = None
         self._last_demag_solve_diagnostics_inputs = (
@@ -190,7 +267,14 @@ class SimulationDemagAuxiliaryMixin:
             phi2,
             phi,
         )
-        if _demag_internal_trace_enabled():
+        if getattr(self, "_rhs_cached_tokens", None) is None and _demag_internal_trace_enabled():
+            self.last_demag_internal_vectors = {
+                "rho": np.array(rho, copy=True),
+                "phi1": np.array(phi1, copy=True),
+                "phi2": np.array(phi2, copy=True),
+                "phi": np.array(phi, copy=True),
+            }
+        elif getattr(self, "_rhs_trace_enabled", False):
             self.last_demag_internal_vectors = {
                 "rho": np.array(rho, copy=True),
                 "phi1": np.array(phi1, copy=True),
@@ -206,6 +290,8 @@ class SimulationDemagAuxiliaryMixin:
     ) -> np.ndarray:
         if cofield.size == 0:
             return np.zeros(point_count, dtype=float)
+        if len(cofield) == point_count:
+            return cofield / LEGACY_RHO_BOXED_VOLUME_M3
 
         nodal = np.zeros(point_count, dtype=float)
         # Legacy Nmag's simulation unit system always boxes rho with the

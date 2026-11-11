@@ -1,11 +1,71 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
 from ...backends import _load_rust_accelerator
 from ..support import _simulation_compatibility_binding
+
+_llg_rhs_no_stt_numba_kernel: Callable[..., np.ndarray] | None = None
+
+
+def _llg_rhs_no_stt_raw(
+    m: np.ndarray,
+    h_total: np.ndarray,
+    pin: np.ndarray,
+    ms_values: np.ndarray,
+    precession_values: np.ndarray,
+    damping_values: np.ndarray,
+    normalisation_values: np.ndarray,
+) -> np.ndarray:
+    n = m.shape[0]
+    out = np.empty((n, 3), dtype=np.float64)
+    for i in range(n):
+        m0 = m[i, 0]
+        m1 = m[i, 1]
+        m2 = m[i, 2]
+        h0 = h_total[i, 0]
+        h1 = h_total[i, 1]
+        h2 = h_total[i, 2]
+        mdoth = m0 * h0 + m1 * h1 + m2 * h2
+        mdotm = m0 * m0 + m1 * m1 + m2 * m2
+        d0 = m0 * mdoth - h0 * mdotm
+        d1 = m1 * mdoth - h1 * mdotm
+        d2 = m2 * mdoth - h2 * mdotm
+        ne = 1.0 - mdotm
+        damp = damping_values[i]
+        norm_c = normalisation_values[i]
+        prec = precession_values[i]
+        r0 = damp * d0 + norm_c * (ne * m0)
+        r1 = damp * d1 + norm_c * (ne * m1)
+        r2 = damp * d2 + norm_c * (ne * m2)
+        if prec != 0.0:
+            r0 += prec * (m1 * h2 - m2 * h1)
+            r1 += prec * (m2 * h0 - m0 * h2)
+            r2 += prec * (m0 * h1 - m1 * h0)
+        ms_i = ms_values[i]
+        pin_i = pin[i]
+        out[i, 0] = ms_i * r0 * pin_i
+        out[i, 1] = ms_i * r1 * pin_i
+        out[i, 2] = ms_i * r2 * pin_i
+    return out
+
+
+def _get_llg_rhs_no_stt_numba_kernel() -> Callable[..., np.ndarray] | None:
+    global _llg_rhs_no_stt_numba_kernel
+    if _llg_rhs_no_stt_numba_kernel is not None:
+        return _llg_rhs_no_stt_numba_kernel
+    try:
+        from numba import njit
+    except ImportError:  # pragma: no cover - numba is a core dependency.
+        return None
+    _llg_rhs_no_stt_numba_kernel = cast(
+        Callable[..., np.ndarray],
+        njit(cache=True)(_llg_rhs_no_stt_raw),
+    )
+    return _llg_rhs_no_stt_numba_kernel
 
 
 class SimulationLlgRhsMixin:
@@ -35,6 +95,18 @@ class SimulationLlgRhsMixin:
                 ("normalisation", normalisation_coeff),
             ),
         )
+        if dm_dcurrent is None:
+            kernel = _get_llg_rhs_no_stt_numba_kernel()
+            if kernel is not None:
+                return kernel(
+                    m,
+                    h_total,
+                    pin,
+                    ms_values,
+                    precession_values,
+                    damping_values,
+                    normalisation_values,
+                )
         rhs, mdotm = self._llg_field_rhs(
             m,
             h_total,

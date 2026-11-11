@@ -117,7 +117,8 @@ class SimulationFieldArrayMixin:
         if subfieldname == "H_demag":
             return np.asarray(self._get_demag_nodal_field(), dtype=float)
         if subfieldname == "H_ext":
-            h_ext = np.asarray(self._fields.get("H_ext", np.zeros(3)), dtype=float)
+            raw_h_ext = self._fields.get("H_ext")
+            h_ext = np.zeros(3, dtype=float) if raw_h_ext is None else np.asarray(raw_h_ext, dtype=float)
             if h_ext.shape != (3,):
                 raise ValueError(f"H_ext must be a homogeneous 3-vector, got shape {h_ext.shape}.")
             point_count = len(self.mesh.points) if self.mesh is not None else 1

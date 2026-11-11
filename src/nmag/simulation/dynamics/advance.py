@@ -8,6 +8,7 @@ from numpy.typing import NDArray
 
 from si.physical import SI
 
+from ...backends import _demag_internal_trace_enabled
 from ...dynamics import IntegratorStats
 from ..support import _si_unit
 
@@ -118,21 +119,31 @@ class SimulationTimeAdvanceMixin:
         time_before: float,
     ) -> tuple[Any, int, float]:
         accepted_steps, last_step_seconds = 0, 0.0
-        while self._can_continue_advancing(integrator, target_seconds, max_it, accepted_steps):
-            previous_time = float(integrator.t)
-            message = integrator.step()
-            if integrator.status == "failed":
-                raise RuntimeError(message or "DOP853 failed to advance the LLG state.")
-            accepted_steps += 1
-            last_step_seconds = float(integrator.t) - previous_time
-            if exact and float(integrator.t) > target_seconds:
-                integrator = self._restart_at_exact_target(
-                    integrator,
-                    target_seconds,
-                    time_before,
-                )
-                last_step_seconds = target_seconds - previous_time
-                break
+        self._rhs_cached_tokens = (
+            self._mesh_geometry_token(),
+            self._material_state_token(),
+        )
+        self._rhs_trace_enabled = _demag_internal_trace_enabled()
+        try:
+            while self._can_continue_advancing(
+                integrator, target_seconds, max_it, accepted_steps
+            ):
+                previous_time = float(integrator.t)
+                message = integrator.step()
+                if integrator.status == "failed":
+                    raise RuntimeError(message or "DOP853 failed to advance the LLG state.")
+                accepted_steps += 1
+                last_step_seconds = float(integrator.t) - previous_time
+                if exact and float(integrator.t) > target_seconds:
+                    integrator = self._restart_at_exact_target(
+                        integrator,
+                        target_seconds,
+                        time_before,
+                    )
+                    last_step_seconds = target_seconds - previous_time
+                    break
+        finally:
+            self._rhs_cached_tokens = None
         return integrator, accepted_steps, last_step_seconds
 
     @staticmethod

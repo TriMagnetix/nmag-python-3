@@ -225,3 +225,65 @@ def test_explicit_restart_is_independent_from_output_append(tmp_path) -> None:
     )
     assert np.asarray(resumed.get_subfield("m")).shape == (4, 3)
     resumed.load_restart_file(checkpoint)
+
+
+def test_rust_accelerator_negative_cache_and_auto_threshold_selection(monkeypatch) -> None:
+    import importlib
+    import sys
+
+    monkeypatch.delitem(sys.modules, "nmag_accel", raising=False)
+    monkeypatch.setattr(backends, "_rust_accelerator_negative_cache_key", None)
+
+    import_calls = 0
+
+    def _fail_import(name: str):
+        nonlocal import_calls
+        import_calls += 1
+        raise ImportError(f"No module named {name!r}")
+
+    monkeypatch.setattr(importlib, "import_module", _fail_import)
+    assert backends._rust_accelerator_available() is False
+    assert import_calls == 1
+    assert backends._rust_accelerator_available() is False
+    assert import_calls == 1
+
+    # Mutating sys.path invalidates the negative cache key
+    monkeypatch.setattr(sys, "path", [*sys.path, "/nonexistent-test-path"])
+    assert backends._rust_accelerator_available() is False
+    assert import_calls == 2
+
+    # Auto selection below threshold never probes _rust_accelerator_available()
+    probe_calls = 0
+
+    def _unexpected_probe() -> bool:
+        nonlocal probe_calls
+        probe_calls += 1
+        return True
+
+    monkeypatch.setattr(backends, "_rust_accelerator_available", _unexpected_probe)
+    assert _selected_llg_backend(10, nmag.NmagConfig()) == "python"
+    assert probe_calls == 0
+
+
+def test_demag_fem_and_recovery_auto_thresholds_respect_memory_mode(monkeypatch) -> None:
+    monkeypatch.setattr(backends, "_rust_accelerator_available", lambda: True)
+    monkeypatch.delenv(backends.MEMORY_MODE_ENV, raising=False)
+    assert backends._selected_demag_fem_assembly_backend(4_161) == "python"
+    assert backends._selected_demag_nodal_recovery_backend(4_161) == "python"
+    assert (
+        backends._selected_demag_fem_assembly_backend(backends.DEMAG_FEM_ASSEMBLY_RUST_MIN_CELLS)
+        == "rust"
+    )
+    assert (
+        backends._selected_demag_nodal_recovery_backend(
+            backends.DEMAG_NODAL_RECOVERY_RUST_MIN_CELLS
+        )
+        == "rust"
+    )
+
+    monkeypatch.setenv(backends.MEMORY_MODE_ENV, "low")
+    assert backends._selected_demag_fem_assembly_backend(4_161) == "rust"
+    assert backends._selected_demag_nodal_recovery_backend(4_161) == "rust"
+    assert backends._selected_demag_fem_assembly_backend(1_024) == "python"
+    assert backends._selected_demag_nodal_recovery_backend(1_024) == "python"
+

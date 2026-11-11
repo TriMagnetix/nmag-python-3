@@ -186,53 +186,53 @@ class SimulationDemagRecoveryMixin:
             and not volumes.flags.writeable
             and not weights.flags.writeable
         )
+        cached = self._demag_nodal_recovery_operator_cache
+        if (
+            inputs_immutable
+            and cached is not None
+            and (getattr(self, "_rhs_cached_tokens", None) is not None or _selected_memory_mode() != "low")
+            and cached[0] is simplices
+            and cached[1] is volumes
+            and cached[2] is weights
+            and cached[3] == point_count
+        ):
+            return np.asarray(cached[4] @ cell_h, dtype=float)
         if (
             len(simplices) <= _RECOVERY_OPERATOR_MAX_SIMPLICES
             and _selected_memory_mode() != "low"
         ):
-            cached = self._demag_nodal_recovery_operator_cache
-            if (
-                inputs_immutable
-                and cached is not None
-                and cached[0] is simplices
-                and cached[1] is volumes
-                and cached[2] is weights
-                and cached[3] == point_count
-            ):
-                cell_to_node_weighted = cached[4]
-            else:
-                if np.any((simplices < 0) | (simplices >= point_count)):
-                    raise IndexError("simplex node index out of bounds")
-                from scipy import sparse
+            if np.any((simplices < 0) | (simplices >= point_count)):
+                raise IndexError("simplex node index out of bounds")
+            from scipy import sparse
 
-                inv_weights = np.zeros(point_count, dtype=float)
-                present = weights > 0.0
-                inv_weights[present] = 1.0 / weights[present]
-                positive = volumes > 0.0
-                if np.any(positive):
-                    positive_indices = np.flatnonzero(positive)
-                    positive_simplices = simplices[positive_indices]
-                    positive_volumes = volumes[positive_indices]
-                    rows = positive_simplices.ravel()
-                    cols = np.repeat(positive_indices, 4)
-                    data = np.repeat(positive_volumes, 4) * inv_weights[rows]
-                    cell_to_node_weighted = sparse.csr_matrix(
-                        (data, (rows, cols)),
-                        shape=(point_count, len(simplices)),
-                    )
-                else:
-                    cell_to_node_weighted = sparse.csr_matrix(
-                        (point_count, len(simplices)),
-                        dtype=float,
-                    )
-                if inputs_immutable:
-                    self._demag_nodal_recovery_operator_cache = (
-                        simplices,
-                        volumes,
-                        weights,
-                        point_count,
-                        cell_to_node_weighted,
-                    )
+            inv_weights = np.zeros(point_count, dtype=float)
+            present = weights > 0.0
+            inv_weights[present] = 1.0 / weights[present]
+            positive = volumes > 0.0
+            if np.any(positive):
+                positive_indices = np.flatnonzero(positive)
+                positive_simplices = simplices[positive_indices]
+                positive_volumes = volumes[positive_indices]
+                rows = positive_simplices.ravel()
+                cols = np.repeat(positive_indices, 4)
+                data = np.repeat(positive_volumes, 4) * inv_weights[rows]
+                cell_to_node_weighted = sparse.csr_matrix(
+                    (data, (rows, cols)),
+                    shape=(point_count, len(simplices)),
+                )
+            else:
+                cell_to_node_weighted = sparse.csr_matrix(
+                    (point_count, len(simplices)),
+                    dtype=float,
+                )
+            if inputs_immutable:
+                self._demag_nodal_recovery_operator_cache = (
+                    simplices,
+                    volumes,
+                    weights,
+                    point_count,
+                    cell_to_node_weighted,
+                )
             return np.asarray(cell_to_node_weighted @ cell_h, dtype=float)
 
         if np.any((simplices < 0) | (simplices >= point_count)):

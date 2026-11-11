@@ -74,6 +74,9 @@ class SimulationMeshMaterialMixin:
         def __getattr__(self, name: str) -> Any: ...
 
     def _material_state_token(self) -> int:
+        cached_tokens = getattr(self, "_rhs_cached_tokens", None)
+        if cached_tokens is not None:
+            return cached_tokens[1]
         mesh = getattr(self, "mesh", None)
         regions = getattr(mesh, "regions", None) if mesh is not None else None
         region_map = tuple(sorted(getattr(self, "region_name_of_id", {}).items()))

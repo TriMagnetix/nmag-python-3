@@ -95,6 +95,21 @@ class SimulationDemagFemAssemblyMixin:
             and not volumes.flags.writeable
             and not ms_values.flags.writeable
         )
+        cached = self._demag_fem_divergence_operator_cache
+        if (
+            inputs_immutable
+            and cached is not None
+            and (getattr(self, "_rhs_cached_tokens", None) is not None or _selected_memory_mode() != "low")
+            and cached[0] is simplices
+            and cached[1] is gradients_by_cell
+            and cached[2] is volumes
+            and cached[3] is ms_values
+            and cached[4] == point_count
+        ):
+            return np.asarray(
+                cached[5] @ np.ascontiguousarray(m, dtype=float).ravel(),
+                dtype=float,
+            )
         if (
             inputs_immutable
             and _DIVERGENCE_OPERATOR_MIN_SIMPLICES
@@ -102,39 +117,28 @@ class SimulationDemagFemAssemblyMixin:
             <= _DIVERGENCE_OPERATOR_MAX_SIMPLICES
             and _selected_memory_mode() != "low"
         ):
-            cached = self._demag_fem_divergence_operator_cache
-            if (
-                cached is not None
-                and cached[0] is simplices
-                and cached[1] is gradients_by_cell
-                and cached[2] is volumes
-                and cached[3] is ms_values
-                and cached[4] == point_count
-            ):
-                div_operator = cached[5]
-            else:
-                from scipy import sparse
+            from scipy import sparse
 
-                cell_weights = (0.25 * ms_values * volumes)[:, np.newaxis, np.newaxis]
-                weighted_grads = gradients_by_cell * cell_weights  # (C, 4, 3)
-                # Each cell c contributes weighted_grads[c, i, alpha] * m[simplices[c, j], alpha]
-                # to row simplices[c, i].
-                rows = np.repeat(simplices, 12)
-                base_cols = 3 * simplices[:, :, np.newaxis] + np.arange(3)[np.newaxis, np.newaxis, :]
-                cols = np.tile(base_cols.reshape(len(simplices), 1, 12), (1, 4, 1)).ravel()
-                data = np.tile(weighted_grads[:, :, np.newaxis, :], (1, 1, 4, 1)).ravel()
-                div_operator = sparse.csr_matrix(
-                    (data, (rows, cols)),
-                    shape=(point_count, 3 * point_count),
-                )
-                self._demag_fem_divergence_operator_cache = (
-                    simplices,
-                    gradients_by_cell,
-                    volumes,
-                    ms_values,
-                    point_count,
-                    div_operator,
-                )
+            cell_weights = (0.25 * ms_values * volumes)[:, np.newaxis, np.newaxis]
+            weighted_grads = gradients_by_cell * cell_weights  # (C, 4, 3)
+            # Each cell c contributes weighted_grads[c, i, alpha] * m[simplices[c, j], alpha]
+            # to row simplices[c, i].
+            rows = np.repeat(simplices, 12)
+            base_cols = 3 * simplices[:, :, np.newaxis] + np.arange(3)[np.newaxis, np.newaxis, :]
+            cols = np.tile(base_cols.reshape(len(simplices), 1, 12), (1, 4, 1)).ravel()
+            data = np.tile(weighted_grads[:, :, np.newaxis, :], (1, 1, 4, 1)).ravel()
+            div_operator = sparse.csr_matrix(
+                (data, (rows, cols)),
+                shape=(point_count, 3 * point_count),
+            )
+            self._demag_fem_divergence_operator_cache = (
+                simplices,
+                gradients_by_cell,
+                volumes,
+                ms_values,
+                point_count,
+                div_operator,
+            )
             return np.asarray(
                 div_operator @ np.ascontiguousarray(m, dtype=float).ravel(),
                 dtype=float,

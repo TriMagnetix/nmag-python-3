@@ -32,11 +32,30 @@ class SimulationDemagBemDirichletMixin:
         boundary_values: np.ndarray,
     ) -> np.ndarray:
         point_count = stiffness.shape[0]
-        is_sparse = _is_sparse_matrix(stiffness)
-        use_scipy_cache = (
-            not is_sparse and _selected_demag_linear_solver_backend(point_count) == "scipy"
-        )
-        cached = self._demag_dirichlet_factorization_cache if use_scipy_cache else None
+        if len(boundary_nodes) == point_count:
+            with self._record_active_subfield_array_timing_block(
+                "demag_auxiliary:dirichlet_extension:index",
+            ):
+                phi = np.zeros(point_count, dtype=float)
+                phi[boundary_nodes] = boundary_values
+            self._record_active_subfield_array_timing(
+                "demag_auxiliary:dirichlet_extension:no_interior",
+                0.0,
+            )
+            return phi
+        if (
+            getattr(self, "_rhs_cached_tokens", None) is not None
+            and self._demag_dirichlet_factorization_cache is not None
+        ):
+            cached = self._demag_dirichlet_factorization_cache
+            is_sparse = False
+            use_scipy_cache = True
+        else:
+            is_sparse = _is_sparse_matrix(stiffness)
+            use_scipy_cache = (
+                not is_sparse and _selected_demag_linear_solver_backend(point_count) == "scipy"
+            )
+            cached = self._demag_dirichlet_factorization_cache if use_scipy_cache else None
 
         if cached is not None:
             interior_nodes, cached_boundary, boundary_stiffness, factorization = cached
@@ -56,7 +75,7 @@ class SimulationDemagBemDirichletMixin:
             with self._record_active_subfield_array_timing_block(
                 "demag_auxiliary:dirichlet_extension:rhs",
             ):
-                interior_rhs = -boundary_stiffness @ boundary_values
+                interior_rhs = -(boundary_stiffness @ boundary_values)
             with self._record_active_subfield_array_timing_block(
                 "demag_auxiliary:dirichlet_extension:solve",
             ):
@@ -90,7 +109,7 @@ class SimulationDemagBemDirichletMixin:
         with self._record_active_subfield_array_timing_block(
             "demag_auxiliary:dirichlet_extension:rhs",
         ):
-            interior_rhs = -boundary_stiffness @ boundary_values
+            interior_rhs = -(boundary_stiffness @ boundary_values)
         if _is_sparse_matrix(interior_stiffness):
             phi[interior_nodes] = _solve_sparse_linear_system(
                 interior_stiffness,

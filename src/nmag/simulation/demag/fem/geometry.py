@@ -41,6 +41,21 @@ class SimulationDemagFemGeometryMixin:
         token = self._mesh_geometry_token()
         self._ensure_demag_geometry_cache_token(token)
         inputs_immutable = not points.flags.writeable and not simplices.flags.writeable
+        if (
+            getattr(self, "_rhs_cached_tokens", None) is not None
+            and inputs_immutable
+            and self._demag_fem_geometry_cache is not None
+        ):
+            (
+                _cached_backend,
+                cached_points,
+                cached_simplices,
+                stiffness,
+                gradients,
+                volumes,
+            ) = self._demag_fem_geometry_cache
+            if cached_points is points and cached_simplices is simplices:
+                return stiffness, gradients, volumes
         env_key = (
             os.environ.get(DEMAG_FEM_MATRIX_BACKEND_ENV),
             os.environ.get(MEMORY_MODE_ENV),

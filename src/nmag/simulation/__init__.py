@@ -220,9 +220,12 @@ class Simulation(
         self._exchange_cache_token: tuple[int, ...] | None = None
         self._exchange_nodal_cache: np.ndarray | None = None
         self._exchange_operator_cache: (
-            tuple[int, Any, np.ndarray, Any, Any, np.ndarray, bool, np.ndarray] | None
+            tuple[int, Any, np.ndarray, Any, Any, np.ndarray, bool, bool, np.ndarray] | None
         ) = None
         self._exchange_spectral_bound_cache: tuple[int, float] | None = None
+        self._rhs_cached_tokens: tuple[int, int] | None = None
+        self._rhs_trace_enabled: bool = False
+        self._rhs_unit_scale_cache: np.ndarray | None = None
         self._nodal_material_coefficients_cache: (
             tuple[tuple[int, int], NodalMaterialCoefficients] | None
         ) = None

@@ -381,3 +381,77 @@ def test_low_memory_mode_and_out_of_bounds_recovery_validation(tmp_path, monkeyp
     assert len(np_mesh.points) == 4
 
 
+def test_numba_hotpath_kernels_match_numpy_fallbacks_and_rhs_fastpaths(tmp_path, monkeypatch):
+    import nmag.simulation.demag.fields.auxiliary as aux_mod
+    import nmag.simulation.demag.fields.probe as probe_mod
+    import nmag.simulation.exchange.llg_rhs as llg_mod
+    import nmag.simulation.fields.derived as derived_mod
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NMAG_ACCELERATOR", "off")
+    mesh_path = tmp_path / "mesh.nmesh"
+    helpers.write_two_tetra_mesh(mesh_path)
+
+    material = nmag.MagMaterial(
+        name="Py",
+        Ms=nmag.SI(1.0e6, "A/m"),
+        exchange_coupling=nmag.SI(13.0e-12, "J/m"),
+        anisotropy=nmag.uniaxial_anisotropy(axis=[0.0, 0.0, 1.0], K1=nmag.SI(2.5e4, "J/m^3")),
+    )
+    sim = nmag.Simulation(name="mvp-hotpath-parity")
+    sim.load_mesh(str(mesh_path), [("generated", material)], unit_length=nmag.SI(1e-9, "m"))
+    sim.set_m(lambda point: [1.0, 0.2, -0.1] if point[0] <= 5.0e-10 else [-0.3, 0.9, 0.2])
+    sim.set_H_ext([100.0, -250.0, 50.0], nmag.SI("A/m"))
+
+    points = sim._mesh_points()
+    simplices = sim._mesh_simplices()
+    phi, _, _ = sim._get_demag_auxiliary_fields()
+
+    # 1. Cell demag potential gradient kernel vs NumPy fallback
+    cell_h_jit = sim._cell_demag_from_potential(points, simplices, phi)
+    monkeypatch.setattr(probe_mod, "_get_cell_demag_numba_kernel", lambda: None)
+    cell_h_numpy = sim._cell_demag_from_potential(points, simplices, phi)
+    np.testing.assert_allclose(cell_h_jit, cell_h_numpy, rtol=1.0e-14, atol=1.0e-14)
+
+    # 2. Uniformity check kernel vs NumPy fallback (including m[0] == m[1] case)
+    m_nonuniform_After_1 = np.array(
+        [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+        dtype=float,
+    )
+    m_uniform = np.tile(np.array([[0.0, 1.0, 0.0]], dtype=float), (5, 1))
+    assert derived_mod._is_uniform_within_atol_raw(m_nonuniform_After_1, 1.0e-12) is False
+    assert derived_mod._is_uniform_within_atol_raw(m_uniform, 1.0e-12) is True
+    sim._fields["m"] = m_nonuniform_After_1
+    assert sim._exchange_is_zero_by_construction() is False
+    monkeypatch.setattr(derived_mod, "_get_is_uniform_within_atol_kernel", lambda: None)
+    assert sim._exchange_is_zero_by_construction() is False
+
+    # 3. LLG RHS kernel vs NumPy fallback
+    sim.set_m(lambda point: [1.0, 0.2, -0.1] if point[0] <= 5.0e-10 else [-0.3, 0.9, 0.2])
+    m_state = np.asarray(sim._fields["m"], dtype=float).copy()
+    rhs_jit = sim._llg_time_derivative(0.0, m_state.reshape(-1)).copy()
+    assert sim._rhs_cached_tokens is None
+    assert sim._rhs_unit_scale_cache is not None
+
+    monkeypatch.setattr(llg_mod, "_get_llg_rhs_no_stt_numba_kernel", lambda: None)
+    rhs_numpy = sim._llg_time_derivative(0.0, m_state.reshape(-1)).copy()
+    np.testing.assert_allclose(rhs_jit, rhs_numpy, rtol=1.0e-14, atol=1.0e-14)
+    np.testing.assert_allclose(
+        rhs_jit.reshape(-1, 3) * 1.0e6,
+        sim._subfield_array("dmdt"),
+        rtol=1.0e-14,
+        atol=1.0e-14,
+    )
+
+    # 4. Dense BEM operator helper with and without thread capping
+    bem_dense = np.array([[1.5, -0.5], [0.25, 2.0]], dtype=float)
+    phi1_boundary = np.array([2.0, -4.0], dtype=float)
+    np.testing.assert_allclose(
+        aux_mod._apply_bem_operator(bem_dense, phi1_boundary),
+        bem_dense @ phi1_boundary,
+        rtol=1.0e-15,
+        atol=1.0e-15,
+    )
+
+
+

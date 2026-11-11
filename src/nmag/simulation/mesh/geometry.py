@@ -9,6 +9,8 @@ from ..support import _MESH_EDGE_SET_THRESHOLD
 
 class SimulationMeshGeometryMixin:
     if TYPE_CHECKING:
+        _rhs_cached_tokens: tuple[int, int] | None
+        _rhs_unit_scale_cache: np.ndarray | None
 
         def __getattr__(self, name: str) -> Any: ...
 
@@ -22,12 +24,16 @@ class SimulationMeshGeometryMixin:
         self._demag_phi_cache = None
         self._demag_rho_cache = None
         self._demag_volumes_cache = None
-        self.last_demag_solve_diagnostics = {}
-        self.last_demag_internal_vectors = {}
+        self._last_demag_solve_diagnostics = None
+        self._last_demag_solve_diagnostics_inputs = None
+        if self.last_demag_internal_vectors:
+            self.last_demag_internal_vectors = {}
         self._exchange_cache_token = None
         self._exchange_nodal_cache = None
         self._anisotropy_fields_cache = None
         if clear_geometry:
+            self._rhs_cached_tokens = None
+            self._rhs_unit_scale_cache = None
             self._demag_geometry_cache_token = None
             self._demag_boundary_faces_cache = None
             self._demag_bem_cache = None
@@ -60,6 +66,8 @@ class SimulationMeshGeometryMixin:
             self._probe_tetrahedral_cache = None
 
     def _mesh_points(self) -> np.ndarray:
+        if self._rhs_cached_tokens is not None and self._mesh_points_cache is not None:
+            return self._mesh_points_cache[3]
         mesh = self._require_mesh()
         raw_points = mesh.points
         token = self._mesh_geometry_token()
@@ -81,6 +89,8 @@ class SimulationMeshGeometryMixin:
         return points
 
     def _mesh_simplices(self) -> np.ndarray:
+        if self._rhs_cached_tokens is not None and self._mesh_simplices_cache is not None:
+            return self._mesh_simplices_cache[3]
         mesh = self._require_mesh()
         raw_simplices = mesh.simplices
         token = self._mesh_geometry_token()
@@ -170,6 +180,8 @@ class SimulationMeshGeometryMixin:
         return edges
 
     def _mesh_geometry_token(self) -> int:
+        if self._rhs_cached_tokens is not None:
+            return self._rhs_cached_tokens[0]
         mesh = self._require_mesh()
         points = mesh.points
         simplices = mesh.simplices

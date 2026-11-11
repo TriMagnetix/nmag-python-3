@@ -39,6 +39,14 @@ class SimulationDemagBemOperatorMixin:
         simplices: np.ndarray,
         boundary_faces: list[tuple[int, tuple[int, int, int]]],
     ) -> tuple[np.ndarray, Any]:
+        if (
+            getattr(self, "_rhs_cached_tokens", None) is not None
+            and self._demag_bem_cache is not None
+            and getattr(self, "_active_subfield_array_timings", None) is None
+        ):
+            _cached_backend, boundary_nodes, operator, stats = self._demag_bem_cache
+            self._last_bem_operator_stats = stats
+            return boundary_nodes, operator
         cache_started = time.perf_counter()
         token = self._mesh_geometry_token()
         self._ensure_demag_geometry_cache_token(token)

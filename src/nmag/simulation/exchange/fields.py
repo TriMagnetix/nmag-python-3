@@ -10,7 +10,7 @@ from ...demag.linear import _is_sparse_matrix
 class SimulationExchangeFieldMixin:
     if TYPE_CHECKING:
         _exchange_operator_cache: (
-            tuple[int, Any, np.ndarray, Any, Any, np.ndarray, bool, np.ndarray] | None
+            tuple[int, Any, np.ndarray, Any, Any, np.ndarray, bool, bool, np.ndarray] | None
         )
 
         def __getattr__(self, name: str) -> Any: ...
@@ -65,8 +65,8 @@ class SimulationExchangeFieldMixin:
 
         points = self._mesh_points()
         simplices = self._mesh_simplices()
-        exchange = np.zeros((len(points), 3), dtype=float)
         if simplices.size == 0:
+            exchange = np.zeros((len(points), 3), dtype=float)
             exchange.setflags(write=False)
             self._exchange_cache_token = token
             self._exchange_nodal_cache = exchange
@@ -74,6 +74,7 @@ class SimulationExchangeFieldMixin:
         if simplices.ndim != 2 or simplices.shape[1] != 4:
             raise NotImplementedError("The exchange MVP currently supports tetrahedral 3D meshes.")
         if self._exchange_is_zero_by_construction():
+            exchange = np.zeros((len(points), 3), dtype=float)
             exchange.setflags(write=False)
             self._exchange_cache_token = token
             self._exchange_nodal_cache = exchange
@@ -92,7 +93,9 @@ class SimulationExchangeFieldMixin:
             and op_cache[2] is volumes
             and op_cache[3] is coefficients
         ):
-            _, _, _, _, sparse_stiffness, present, has_present, scale_present = op_cache
+            _, _, _, _, sparse_stiffness, present, has_present, all_present, scale_present = (
+                op_cache
+            )
         else:
             from scipy import sparse
 
@@ -109,6 +112,7 @@ class SimulationExchangeFieldMixin:
             )
             present = lumped_volumes > 0.0
             has_present = bool(np.any(present))
+            all_present = bool(np.all(present))
             if has_present:
                 prefactors = coefficients.exchange_prefactor
                 scale_present = -(
@@ -124,12 +128,21 @@ class SimulationExchangeFieldMixin:
                 sparse_stiffness,
                 present,
                 has_present,
+                all_present,
                 scale_present,
             )
 
-        if has_present:
-            cofield = sparse_stiffness @ np.asarray(self._fields["m"], dtype=float)
-            exchange[present] = scale_present * cofield[present]
+        if has_present and all_present:
+            exchange = np.asarray(
+                sparse_stiffness @ np.asarray(self._fields["m"], dtype=float),
+                dtype=float,
+            )
+            exchange *= scale_present
+        else:
+            exchange = np.zeros((len(points), 3), dtype=float)
+            if has_present:
+                cofield = sparse_stiffness @ np.asarray(self._fields["m"], dtype=float)
+                exchange[present] = scale_present * cofield[present]
 
         exchange.setflags(write=False)
         self._exchange_cache_token = token

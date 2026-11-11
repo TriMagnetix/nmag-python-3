@@ -1,12 +1,54 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
 from ....demag import _mean_edge_length, _simplex_volumes
 from ...support import MU0_OVER_4PI, _simulation_compatibility_binding
+
+_cell_demag_numba_kernel: Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray] | None = (
+    None
+)
+
+
+def _cell_demag_from_potential_raw(
+    simplices: np.ndarray,
+    gradients_by_cell: np.ndarray,
+    phi: np.ndarray,
+) -> np.ndarray:
+    n_cells = simplices.shape[0]
+    out = np.empty((n_cells, 3), dtype=np.float64)
+    for c in range(n_cells):
+        p0 = phi[simplices[c, 0]]
+        p1 = phi[simplices[c, 1]]
+        p2 = phi[simplices[c, 2]]
+        p3 = phi[simplices[c, 3]]
+        for k in range(3):
+            acc = p0 * (-gradients_by_cell[c, 0, k])
+            acc += p1 * (-gradients_by_cell[c, 1, k])
+            acc += p2 * (-gradients_by_cell[c, 2, k])
+            acc += p3 * (-gradients_by_cell[c, 3, k])
+            out[c, k] = acc
+    return out
+
+
+def _get_cell_demag_numba_kernel() -> (
+    Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray] | None
+):
+    global _cell_demag_numba_kernel
+    if _cell_demag_numba_kernel is not None:
+        return _cell_demag_numba_kernel
+    try:
+        from numba import njit
+    except ImportError:  # pragma: no cover - numba is a core dependency.
+        return None
+    _cell_demag_numba_kernel = cast(
+        Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray],
+        njit(cache=True)(_cell_demag_from_potential_raw),
+    )
+    return _cell_demag_numba_kernel
 
 
 class SimulationDemagProbeMixin:
@@ -39,6 +81,14 @@ class SimulationDemagProbeMixin:
         if len(simplices) == 0:
             return np.zeros((0, 3), dtype=float)
         _, gradients_by_cell, _ = self._demag_fem_geometry_for_mesh(points, simplices)
+        kernel = _get_cell_demag_numba_kernel()
+        if (
+            kernel is not None
+            and simplices.dtype == np.int64
+            and gradients_by_cell.dtype == np.float64
+            and phi.dtype == np.float64
+        ):
+            return kernel(simplices, gradients_by_cell, phi)
         inputs_immutable = not simplices.flags.writeable and not gradients_by_cell.flags.writeable
         cached = self._demag_cell_gradient_inputs_cache
         if (

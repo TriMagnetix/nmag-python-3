@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import importlib
 import os
+import sys
 from types import ModuleType
 
 from .config import DEMAG_BEM_STORAGE_ENV, NmagConfig, RustKernel
 from .resources import available_memory_bytes
+
+_rust_accelerator_negative_cache_key: tuple[int, tuple[str, ...], tuple[object, ...]] | None = (
+    None
+)
 
 RUST_ACCELERATOR_API_VERSION = 2
 MEMORY_MODE_ENV = "NMAG_MEMORY_MODE"
@@ -34,8 +39,10 @@ DEMAG_DENSE_MAX_POINTS_ENV = "NMAG_DEMAG_DENSE_MAX_POINTS"
 LEAST_SQUARES_RELATIVE_RESIDUAL_TOLERANCE = 1.0e-10
 
 DEMAG_FEM_GEOMETRY_RUST_MIN_CELLS = 2048
-DEMAG_FEM_ASSEMBLY_RUST_MIN_CELLS = 2048
-DEMAG_NODAL_RECOVERY_RUST_MIN_CELLS = 2048
+DEMAG_FEM_ASSEMBLY_RUST_MIN_CELLS = 250_001
+DEMAG_FEM_ASSEMBLY_LOW_MEM_RUST_MIN_CELLS = 2048
+DEMAG_NODAL_RECOVERY_RUST_MIN_CELLS = 250_001
+DEMAG_NODAL_RECOVERY_LOW_MEM_RUST_MIN_CELLS = 2048
 DEMAG_CELL_AVERAGE_RUST_MIN_CELLS = 2048
 LLG_RUST_MIN_POINTS = 2048
 
@@ -51,10 +58,23 @@ def _policy(config: NmagConfig | None) -> NmagConfig:
 
 
 def _rust_accelerator_available() -> bool:
+    global _rust_accelerator_negative_cache_key
+    if "nmag_accel" in sys.modules:
+        loaded = sys.modules.get("nmag_accel")
+        if loaded is None:
+            return False
+        return getattr(loaded, "API_VERSION", None) == RUST_ACCELERATOR_API_VERSION
+
+    cache_key = (id(importlib.import_module), tuple(sys.path), tuple(sys.meta_path))
+    if _rust_accelerator_negative_cache_key == cache_key:
+        return False
+
     try:
         accelerator = importlib.import_module("nmag_accel")
     except ImportError:
+        _rust_accelerator_negative_cache_key = cache_key
         return False
+    _rust_accelerator_negative_cache_key = None
     return getattr(accelerator, "API_VERSION", None) == RUST_ACCELERATOR_API_VERSION
 
 
@@ -94,13 +114,13 @@ def _select_rust_backend(
     if mode == "rust":
         _load_rust_accelerator(f"NmagConfig.accelerator[{kernel.value!r}]")
         return "rust"
-    if not _rust_accelerator_available():
-        return fallback
     if (
         item_count is not None
         and rust_min_items is not None
         and item_count < rust_min_items
     ):
+        return fallback
+    if not _rust_accelerator_available():
         return fallback
     return "rust"
 
@@ -250,50 +270,70 @@ def _demag_boundary_face_backend_selection_metadata(
 def _selected_demag_fem_assembly_backend(
     cell_count: int | None = None, config: NmagConfig | None = None
 ) -> str:
+    min_cells = (
+        DEMAG_FEM_ASSEMBLY_LOW_MEM_RUST_MIN_CELLS
+        if _selected_memory_mode() == "low"
+        else DEMAG_FEM_ASSEMBLY_RUST_MIN_CELLS
+    )
     return _select_rust_backend(
         config=config,
         kernel=RustKernel.FEM_ASSEMBLY,
         fallback="python",
         item_count=cell_count,
-        rust_min_items=DEMAG_FEM_ASSEMBLY_RUST_MIN_CELLS,
+        rust_min_items=min_cells,
     )
 
 
 def _demag_fem_assembly_backend_selection_metadata(
     cell_count: int | None = None, config: NmagConfig | None = None
 ) -> dict[str, object]:
+    min_cells = (
+        DEMAG_FEM_ASSEMBLY_LOW_MEM_RUST_MIN_CELLS
+        if _selected_memory_mode() == "low"
+        else DEMAG_FEM_ASSEMBLY_RUST_MIN_CELLS
+    )
     return _rust_selection_metadata(
         config=config,
         kernel=RustKernel.FEM_ASSEMBLY,
         selected_backend=_selected_demag_fem_assembly_backend(cell_count, config),
         fallback="python",
         item_count=cell_count,
-        rust_min_items=DEMAG_FEM_ASSEMBLY_RUST_MIN_CELLS,
+        rust_min_items=min_cells,
     )
 
 
 def _selected_demag_nodal_recovery_backend(
     cell_count: int | None = None, config: NmagConfig | None = None
 ) -> str:
+    min_cells = (
+        DEMAG_NODAL_RECOVERY_LOW_MEM_RUST_MIN_CELLS
+        if _selected_memory_mode() == "low"
+        else DEMAG_NODAL_RECOVERY_RUST_MIN_CELLS
+    )
     return _select_rust_backend(
         config=config,
         kernel=RustKernel.NODAL_RECOVERY,
         fallback="python",
         item_count=cell_count,
-        rust_min_items=DEMAG_NODAL_RECOVERY_RUST_MIN_CELLS,
+        rust_min_items=min_cells,
     )
 
 
 def _demag_nodal_recovery_backend_selection_metadata(
     cell_count: int | None = None, config: NmagConfig | None = None
 ) -> dict[str, object]:
+    min_cells = (
+        DEMAG_NODAL_RECOVERY_LOW_MEM_RUST_MIN_CELLS
+        if _selected_memory_mode() == "low"
+        else DEMAG_NODAL_RECOVERY_RUST_MIN_CELLS
+    )
     return _rust_selection_metadata(
         config=config,
         kernel=RustKernel.NODAL_RECOVERY,
         selected_backend=_selected_demag_nodal_recovery_backend(cell_count, config),
         fallback="python",
         item_count=cell_count,
-        rust_min_items=DEMAG_NODAL_RECOVERY_RUST_MIN_CELLS,
+        rust_min_items=min_cells,
     )
 
 
